@@ -5,7 +5,7 @@ a request gets here."""
 from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlmodel import Session, col, select
 
@@ -13,6 +13,7 @@ from app.access import PEOPLE, current_identity
 from app.db import get_session
 from app.models import Item, ItemSource
 from app.services import items as svc
+from app.services import push
 
 
 class ItemIn(BaseModel):
@@ -89,10 +90,15 @@ def _build(router: APIRouter, space_of) -> APIRouter:
 
     @router.post("/items", status_code=201)
     def create_item(
-        body: ItemIn, request: Request, space: str = Depends(space_of), session: Session = Depends(get_session)
+        body: ItemIn,
+        request: Request,
+        background: BackgroundTasks,
+        space: str = Depends(space_of),
+        session: Session = Depends(get_session),
     ):
         identity = current_identity(request)
         item = svc.create(session, identity, space, body.title, body.notes, body.due_on, body.owner, body.today)
+        background.add_task(push.notify_new_item, item.id)
         return _one(session, item)
 
     @router.get("/items/{item_id}")

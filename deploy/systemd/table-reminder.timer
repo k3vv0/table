@@ -1,0 +1,9 @@
+[Unit]
+Description=Table daily session reminder, 8pm Eastern
+
+[Timer]
+OnCalendar=*-*-* 20:00:00 America/New_York
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -7,6 +7,12 @@
   <meta name="theme-color" content="#1b1a18" media="(prefers-color-scheme: dark)" />
   <title>{% block title %}Table{% endblock %}</title>
   <link rel="stylesheet" href="/static/styles.css?v={{ asset_version() }}" />
+  <link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials" />
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
+  <link rel="icon" href="/static/icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Table" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 </head>
 <body>
   <header class="top">
@@ -19,9 +25,13 @@
       {% endif %}
     </nav>
     <span class="who">{{ me.name }}</span>
+    {% if me.role == 'person' %}<a class="gear{% if active == 'settings' %} on{% endif %}" href="/settings" aria-label="Settings">Settings</a>{% endif %}
   </header>
   <main class="page">
     {% block content %}{% endblock %}
   </main>
+  <script>
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+  </script>
 </body>
 </html>

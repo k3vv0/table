@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<div id="settings" data-person="{{ me.person or '' }}">
+  <div class="head">
+    <h1>Settings</h1>
+    <p class="date">Signed in as {{ me.name }}</p>
+  </div>
+
+  <section class="card stack">
+    <h2>Notifications</h2>
+    <p class="muted" id="push-status">Checking…</p>
+    <p class="muted" id="push-install" hidden>On iPhone, add Table to your Home Screen first
+      (Share, then Add to Home Screen), open it from there, and come back to this page.</p>
+    <div class="row">
+      <button type="button" class="btn primary" id="push-on" hidden>Turn on for this device</button>
+      <button type="button" class="btn" id="push-test" hidden>Send a test</button>
+    </div>
+    <ul class="devices" id="push-devices"></ul>
+  </section>
+
+  {% if me.person %}
+  <section class="card stack">
+    <h2>Send to Plate (iOS Shortcut)</h2>
+    <p class="muted">Share a link or some text from any app straight into your Plate's inbox.
+      Each phone gets its own token; revoke one and only that phone stops working.</p>
+    <form id="token-form" class="row">
+      <label class="sr" for="token-name">Device name</label>
+      <input id="token-name" placeholder="Kev's iPhone" maxlength="60" />
+      <button type="submit" class="btn">Make a token</button>
+    </form>
+    <div id="token-new" class="token-new" hidden>
+      <p><strong>Copy this now; it won't be shown again.</strong></p>
+      <code id="token-value"></code>
+      <button type="button" class="btn small" id="token-copy">Copy</button>
+    </div>
+    <ul class="devices" id="token-list"></ul>
+    <details>
+      <summary>How to build the Shortcut</summary>
+      <ol class="steps">
+        <li>In Shortcuts, make a new shortcut. In its details, turn on <em>Show in Share Sheet</em>
+          and accept <em>URLs</em> and <em>Text</em>.</li>
+        <li>Add <em>Get Contents of URL</em>: URL <code>https://dash.sangmuah.net/api/capture</code>,
+          Method <code>POST</code>, Request Body <code>JSON</code>.</li>
+        <li>Headers: <code>CF-Access-Client-Id</code> and <code>CF-Access-Client-Secret</code> from the
+          <code>table-capture</code> service token, and <code>X-Capture-Token</code> with the token above.</li>
+        <li>JSON fields: <code>text</code> = <em>Shortcut Input</em>, and optionally <code>to</code> =
+          <code>table</code> for a household version.</li>
+        <li>Add <em>Show Notification</em> "Sent to Plate" so you know it landed.</li>
+      </ol>
+    </details>
+  </section>
+  {% endif %}
+</div>
+<script src="/static/settings.js?v={{ asset_version() }}" defer></script>
+{% endblock %}

@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     house_emails: str = ""
     # Client ID (not the secret) of the service token this project's cloud sessions use.
     agent_service_token_id: str = ""
+    # Client ID (not the secret) of the service token the "Send to Plate" iOS Shortcut
+    # sends. It may only POST /api/capture, and that route also wants a person's capture
+    # token, so the Access token alone files nothing.
+    capture_service_token_id: str = ""
+
+    # Web Push (DESIGN.md §9). Generate once with `python scripts/make_vapid_keys.py`.
+    # Blank = push is off and the settings page says so.
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:dev@syncyn.io"
 
     @property
     def kev_email_set(self) -> set[str]:
@@ -32,6 +42,10 @@ class Settings(BaseSettings):
     @property
     def beth_email_set(self) -> set[str]:
         return _email_set(self.beth_emails)
+
+    @property
+    def push_enabled(self) -> bool:
+        return bool(self.vapid_public_key and self.vapid_private_key)
 
     @property
     def house_email_set(self) -> set[str]:

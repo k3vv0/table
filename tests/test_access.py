@@ -28,6 +28,7 @@ KEV_WORK = "kev@syncyn.example"
 BETH = "beth@example.com"
 HOUSE = "us@example.com"
 AGENT_ID = "agent-client-id.access"
+CAPTURE_ID = "capture-client-id.access"
 
 _key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -53,6 +54,7 @@ def access_on(monkeypatch):
     monkeypatch.setenv("BETH_EMAILS", BETH)
     monkeypatch.setenv("HOUSE_EMAILS", HOUSE)
     monkeypatch.setenv("AGENT_SERVICE_TOKEN_ID", AGENT_ID)
+    monkeypatch.setenv("CAPTURE_SERVICE_TOKEN_ID", CAPTURE_ID)
     monkeypatch.setattr(access, "_signing_key", lambda token, team: _key.public_key())
     get_settings.cache_clear()
     yield
@@ -62,6 +64,7 @@ def access_on(monkeypatch):
 KEV_H = lambda: _as(email=KEV)  # noqa: E731
 BETH_H = lambda: _as(email="Beth@Example.com")  # noqa: E731  (case-insensitive on purpose)
 AGENT_H = lambda: _as(common_name=AGENT_ID)  # noqa: E731
+CAPTURE_H = lambda: _as(common_name=CAPTURE_ID)  # noqa: E731
 
 
 # --- who gets in --------------------------------------------------------------------
@@ -188,6 +191,36 @@ def test_require_person_refuses_service_tokens():
     assert access.require_person(request).person == "elizabeth"
 
 
+def test_capture_token_reaches_only_the_capture_route():
+    made = client.post("/api/me/capture-tokens", json={"name": "phone"}, headers=KEV_H()).json()
+    headers = {**CAPTURE_H(), "X-Capture-Token": made["token"]}
+    r = client.post("/api/capture", json={"text": "From the share sheet"}, headers=headers)
+    assert r.status_code == 201 and r.json()["space"] == "kev"
+    for method, path in [
+        ("GET", "/"),
+        ("GET", "/kev"),
+        ("GET", "/api/me"),
+        ("GET", "/api/plates/kev/items"),
+        ("POST", "/api/plates/kev/items"),
+        ("POST", "/api/me/capture-tokens"),
+        ("GET", "/manifest.webmanifest"),
+    ]:
+        assert client.request(method, path, json={"title": "x"}, headers=headers).status_code == 403, path
+
+
+def test_capture_still_needs_a_persons_token():
+    assert client.post("/api/capture", json={"text": "x"}, headers=CAPTURE_H()).status_code == 401
+
+
+def test_settings_are_for_people_and_tokens_for_plates():
+    assert client.get("/settings", headers=AGENT_H()).status_code == 403
+    assert client.get("/api/me/push", headers=AGENT_H()).status_code == 403
+    house = _as(email=HOUSE)
+    assert client.get("/settings", headers=house).status_code == 200
+    assert client.get("/api/me/push", headers=house).status_code == 200
+    assert client.post("/api/me/capture-tokens", json={"name": "x"}, headers=house).status_code == 403
+
+
 def test_api_responses_are_never_cached():
     assert client.get("/api/me", headers=KEV_H()).headers["cache-control"] == "private, no-store"
 
@@ -204,9 +237,10 @@ def test_api_responses_are_never_cached():
         ({"house_emails": HOUSE}, "ACCESS_TEAM_DOMAIN"),
         ({"access_team_domain": TEAM, "access_aud": AUD, "kev_emails": KEV, "beth_emails": KEV}, "more than one"),
         ({"access_team_domain": TEAM, "access_aud": AUD, "kev_emails": KEV, "house_emails": KEV}, "more than one"),
+        ({"agent_service_token_id": "same", "capture_service_token_id": "same"}, "must differ"),
     ],
 )
 def test_check_settings_refuses_half_configured(values, message):
-    blank = dict(access_team_domain="", access_aud="", kev_emails="", beth_emails="", house_emails="", agent_service_token_id="")
+    blank = dict(access_team_domain="", access_aud="", kev_emails="", beth_emails="", house_emails="", agent_service_token_id="", capture_service_token_id="")
     with pytest.raises(RuntimeError, match=message):
         access.check_settings(Settings(_env_file=None, **{**blank, **values}))

@@ -59,6 +59,37 @@ class ItemSource(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class PushSubscription(SQLModel, table=True):
+    """One phone or browser that agreed to notifications (DESIGN.md §9)."""
+
+    __tablename__ = "push_subscription"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    person: str = Field(index=True)  # kev | elizabeth | household
+    endpoint: str = Field(unique=True)
+    p256dh: str
+    auth: str
+    device: str = ""  # a label from the browser's user agent, for the settings list
+    new_items: bool = True  # a push when something lands that you didn't add yourself
+    daily: bool = True  # the evening daily-session reminder
+    created_at: datetime = Field(default_factory=utcnow)
+    last_ok_at: Optional[datetime] = None
+
+
+class CaptureToken(SQLModel, table=True):
+    """A per-person secret the "Send to Plate" Shortcut sends with each capture. Only its
+    SHA-256 is stored; the token itself is shown once, when it's made."""
+
+    __tablename__ = "capture_token"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    person: str = Field(index=True)  # kev | elizabeth
+    name: str  # e.g. "Kev's iPhone"
+    token_hash: str = Field(unique=True)
+    created_at: datetime = Field(default_factory=utcnow)
+    last_used_at: Optional[datetime] = None
+
+
 class Activity(SQLModel, table=True):
     """One row per write, by a person or a service token. Never edited or deleted."""
 

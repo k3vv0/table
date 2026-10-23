@@ -45,6 +45,8 @@ a { color: inherit; }
 }
 .tabs a.on { background: var(--surface); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
 .who { margin-left: auto; color: var(--muted); font-size: 14px; }
+.gear { color: var(--muted); font-size: 14px; text-decoration: none; }
+.gear.on { color: var(--ink); }
 .page { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
 h1 { margin: 0; font-size: 28px; }
 .date { margin: 4px 0 24px; color: var(--muted); }
@@ -208,3 +210,18 @@ input[type="date"], select, textarea, .editor input {
   font-size: 14px;
   max-width: calc(100% - 32px);
 }
+
+/* --- settings (app/static/settings.js) --- */
+.stack { display: grid; gap: 12px; margin-bottom: 16px; }
+.stack h2 { margin: 0; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row input { flex: 1 1 180px; font: inherit; font-size: 15px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
+.devices { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.devices li { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.devices .name { flex: 1 1 160px; }
+.devices label { font-size: 14px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.token-new { padding: 12px; border: 1px solid var(--accent); border-radius: 10px; display: grid; gap: 8px; }
+.token-new p { margin: 0; color: var(--ink); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow-wrap: anywhere; }
+.steps { margin: 8px 0 0; padding-left: 20px; color: var(--muted); display: grid; gap: 6px; }
+details summary { cursor: pointer; }

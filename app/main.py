@@ -3,7 +3,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -11,7 +11,7 @@ from app import access
 from app.config import get_settings
 from app.db import init_db
 from app.localtime import today_local
-from app.routers import items
+from app.routers import capture, items, me
 
 
 @asynccontextmanager
@@ -78,6 +78,8 @@ async def _enforce_access(request: Request, call_next):
 
 app.include_router(items.table_router)
 app.include_router(items.plate_router)
+app.include_router(me.router)
+app.include_router(capture.router)
 
 
 @app.get("/api/health")
@@ -102,6 +104,51 @@ def _page(request: Request, template: str, active: str, **context) -> HTMLRespon
         template,
         {"active": active, "me": identity, "today": today_local(), **context},
     )
+
+
+# --- home-screen app (DESIGN.md §9) -------------------------------------------------------
+# Both are served from the root so the service worker's scope covers every page. They sit
+# behind Access like everything else; the page asks for them with credentials.
+
+
+@app.get("/manifest.webmanifest")
+def manifest(request: Request):
+    identity = access.current_identity(request)
+    start = f"/{identity.person}" if identity.person else "/"
+    return JSONResponse(
+        {
+            "name": "Table",
+            "short_name": "Table",
+            "start_url": start,
+            "scope": "/",
+            "display": "standalone",
+            "background_color": "#f6f3ee",
+            "theme_color": "#f6f3ee",
+            "icons": [
+                {"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                {"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+                {"src": "/static/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+            ],
+        },
+        media_type="application/manifest+json",
+    )
+
+
+@app.get("/sw.js")
+def service_worker():
+    return FileResponse(
+        "app/static/sw.js",
+        media_type="text/javascript",
+        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"},
+    )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request):
+    identity = access.current_identity(request)
+    if identity.role != access.PERSON:
+        raise HTTPException(status_code=403, detail="Settings are for people.")
+    return _page(request, "settings.html", "settings")
 
 
 @app.get("/", response_class=HTMLResponse)

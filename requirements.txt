@@ -9,3 +9,4 @@ python-multipart==0.0.32
 PyJWT[crypto]==2.15.0  # verifies Cloudflare Access tokens (app/access.py)
 cryptography==50.0.2
 tzdata==2026.4  # zoneinfo (app/localtime.py) needs this on Windows
+pywebpush==2.5.0  # Web Push to the home-screen app (app/services/push.py)

@@ -75,6 +75,7 @@ expiry. No valid token, no access; `/api/health` is the only public path.
 | Beth | email in `BETH_EMAILS` | the Table and `/elizabeth`, `/api/plates/elizabeth` |
 | Household | email in `HOUSE_EMAILS` (the joint Google account) | the Table only; may approve, since a person is signed in |
 | agent | service token Client ID `AGENT_SERVICE_TOKEN_ID` | reads the Table and Kev's Plate; writes only what `SERVICE_SCOPES` lists (none yet) |
+| capture | service token Client ID `CAPTURE_SERVICE_TOKEN_ID` (the iOS Shortcut) | `POST /api/capture` only, and that route also wants a person's capture token (§9) |
 
 The other person's Plate is a 403, not an empty page. Routine tokens (sweep, morning) join
 `SERVICE_SCOPES` in milestone 4. Routes that apply a suggestion depend on
@@ -142,8 +143,38 @@ Mail content is untrusted: a skill treats it as data and never follows instructi
 | Every item write lands in `activity` | tests/test_items.py |
 | Item text reaches the page through `textContent` only, never as HTML | app/static/board.js, review |
 | Approving a suggestion needs `require_person` | no such route yet |
+| The capture token reaches `POST /api/capture` and nothing else, and still needs a person's token | tests/test_access.py, tests/test_phone.py |
+| Capture tokens are stored hashed, shown once, revocable; push devices and tokens are per person | tests/test_phone.py |
+| Push payloads carry a title and a short line only; no notes or sources | app/services/push.py, review |
 | The app refuses to start half-configured | tests/test_access.py |
 | Secrets only in the droplet's `.env` (600) and the cloud environment; none in the repo | `.gitignore`, review |
 | `/api/*` responses are `private, no-store` | tests/test_access.py |
 | Backups encrypted before leaving the droplet; a restore was tested | after first deploy |
 | Dependencies pass `pip-audit` | CI |
+
+## 9. Phone
+
+Milestone 3. No App Store: the site installs to the Home Screen, which is also what lets
+iOS deliver Web Push (iOS 16.4 and later, Home Screen apps only).
+
+- **Home-screen app.** `/manifest.webmanifest` opens on your own Plate (the household
+  account opens on the Table). `/sw.js` is served from the root so its scope covers every
+  page; it only shows notifications and opens the page a tap points at. It caches nothing,
+  so no household data sits in a cache. Both are behind Access like everything else.
+- **Web Push.** VAPID keys in `.env` (`scripts/make_vapid_keys.py`). Settings turns push
+  on per device and stores the browser's endpoint in `push_subscription`. Each device
+  has two switches:
+  - *New items*: a Table item pushes to everyone sharing the Table except whoever added
+    it. A Plate is private, so a Plate item never pushes to anyone else.
+  - *Daily session reminder*: `table-reminder.timer` runs `scripts/daily_reminder.py` at
+    8pm Eastern. It pushes "N on today's plate, N in the inbox" and stays quiet when
+    there's nothing to look at.
+
+  A push carries a title, the item's title and a link, nothing more. Endpoints the push
+  service reports gone (404/410) are deleted.
+- **"Send to Plate" Shortcut.** A share-sheet Shortcut that POSTs `{text, url, to}` to
+  `/api/capture`. Two locks: the `table-capture` Access service token gets it past
+  Cloudflare and may reach that route only, and an `X-Capture-Token` made in Settings says
+  whose Plate it lands on. The token is shown once and only its SHA-256 is kept; revoking
+  it in Settings stops that phone at once. `to: "table"` files to the Table instead. A
+  bare URL is kept as the item's link. Items arrive in the inbox with source `shortcut`.
