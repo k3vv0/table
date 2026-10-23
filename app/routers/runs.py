@@ -12,7 +12,7 @@ from sqlmodel import Session, col, func, select
 from app.access import PERSON, current_identity
 from app.config import get_settings
 from app.db import get_session
-from app.models import AgentRun, Suggestion, SyncState, utcnow
+from app.models import AgentRun, Suggestion, SyncState, VaultPick, utcnow
 from app.services import items as svc
 from app.services import push
 
@@ -43,6 +43,7 @@ def run_out(run: AgentRun) -> dict:
 
 
 def notify_suggestions(run_id: int) -> None:
+    """One push per space for what a run left: suggestions to look at, and today's reads."""
     from app.db import engine
 
     with Session(engine) as session:
@@ -51,11 +52,19 @@ def notify_suggestions(run_id: int) -> None:
             .where(Suggestion.run_id == run_id, Suggestion.status == "pending")
             .group_by(Suggestion.space)
         )
-        counts = list(session.exec(stmt))
-    for space, n in counts:
+        suggested = dict(session.exec(stmt).all())
+        picked = dict(session.exec(select(VaultPick.space, func.count()).where(VaultPick.run_id == run_id).group_by(VaultPick.space)).all())
+    for space in sorted(set(suggested) | set(picked)):
         where = "the table" if space == "table" else "your plate"
-        noun = "suggestion" if n == 1 else "suggestions"
-        push.send(push.AUDIENCE[space], f"Suggested for {where}", f"{n} {noun} to look at.", push.space_url(space) + "#inbox", kind="new_items")
+        parts = []
+        if n := suggested.get(space):
+            parts.append(f"{n} {'suggestion' if n == 1 else 'suggestions'} to look at")
+        if n := picked.get(space):
+            parts.append(f"{n} {'read' if n == 1 else 'reads'} picked for today")
+        body = ", ".join(parts) + "."
+        title = f"Suggested for {where}" if suggested.get(space) else "Today's reads"
+        anchor = "#inbox" if suggested.get(space) else "#vault"
+        push.send(push.AUDIENCE[space], title, body[0].upper() + body[1:], push.space_url(space) + anchor, kind="new_items")
 
 
 @router.post("/api/agent-runs", status_code=201)

@@ -77,7 +77,7 @@ expiry. No valid token, no access; `/api/health` is the only public path.
 | agent | service token Client ID `AGENT_SERVICE_TOKEN_ID` | reads the Table and Kev's Plate; files suggestions, nothing else |
 | capture | service token Client ID `CAPTURE_SERVICE_TOKEN_ID` (the iOS Shortcut) | `POST /api/capture` only, and that route also wants a person's capture token (§9) |
 | sweep | service token Client ID `SWEEP_SERVICE_TOKEN_ID` (the sweep routine) | reads the Table and Kev's Plate; sorts synced mail, files suggestions, opens and closes its runs (§10) |
-| morning | service token Client ID `MORNING_SERVICE_TOKEN_ID` (the morning routine) | reads the Table and Kev's Plate; files suggestions, opens and closes its runs (§11) |
+| morning | service token Client ID `MORNING_SERVICE_TOKEN_ID` (the morning routine) | reads the Table and Kev's Plate; files suggestions and the day's vault picks, opens and closes its runs (§11, §12) |
 
 The other person's Plate is a 403, not an empty page. Each routine has its own token and
 its own row in `SERVICE_SCOPES`. Routes that apply a suggestion depend on
@@ -164,6 +164,9 @@ skills.
 | Date suggestions are checked like typed dates; a goal link keeps only the goal's number | tests/test_dates.py |
 | Links in notes open only `https://` and render through `textContent` | app/static/board.js, review |
 | date-options never buys, books or holds anything | the skill, review |
+| Only the morning routine files vault picks, two a day per space, on unread entries in that space | tests/test_access.py, tests/test_vault.py |
+| No service token saves, reads or removes a vault entry for anyone; Beth's vault is hers | tests/test_access.py |
+| Vault titles, excerpts and summaries are labelled untrusted and set with `textContent`; links open only `https://` | app/routers/vault.py, app/static/board.js |
 | Dependencies pass `pip-audit` | CI |
 
 ## 9. Phone
@@ -258,3 +261,22 @@ Milestone 5. Dates arrive with options ready instead of as a surprise.
   money-hub (its `goal-modeling` skill, from a project thread with money-hub access), which
   Kev or Beth approves there. Only the goal's number crosses over; Table never copies
   money data.
+
+## 12. The vault
+
+Milestone 6. A read-later list that hands you two things a day instead of growing forever.
+
+- **Entries** are items of kind `link`. They come from the "Save to Vault" Shortcut
+  (`POST /api/capture` with `vault: true`), the board's Vault view (paste a link), and
+  mail sorted as `vault` by the sweep or by hand, which becomes an entry pointing at the
+  message in Gmail (sorting it out of vault again closes the unread entry).
+  `scripts/migrate_vault_backfill.py` gives mail sorted before this milestone its entries.
+  Entries never appear in today, the inbox, later, the daily session, the review or any
+  count, so the vault can't crowd the plate. Read and Remove both mark the entry done.
+- **Picks.** The morning routine's `vault-picks` skill picks two unread entries per space
+  for today (`vault_pick`), each with a two-to-four-sentence summary in its own words and a
+  line on why today. They show at the top of Today and the Vault view. Filing checks that
+  the entry is an unread link in the same space, at most two a day, and not picked in the
+  last 14 days. Closing the run sends one push per space that covers suggestions and reads.
+- **Untrusted text.** Titles, excerpts and pages are other people's words: the API labels
+  them, the skill reads them as data, and pages set them with `textContent`.

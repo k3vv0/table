@@ -53,5 +53,6 @@ a glance why. Don't quote more than the subject.
 ## 4. Hand on
 
 Every `flagged` message goes to `commitment-capture` (is there a commitment?) and
-`watch-check` (does it answer something being watched?). `vault` messages wait for the
-vault milestone; leave them sorted.
+`watch-check` (does it answer something being watched?). Sorting a message as `vault`
+puts it in the Vault view as a read-later entry; the morning routine's `vault-picks`
+takes it from there.
