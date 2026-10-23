@@ -48,6 +48,35 @@ goes in front before the hostname exists, so the app is never reachable without 
 6. **Check** on the phone, over cellular: dash.sangmuah.net asks for a Google login, then
    shows the Table; `/elizabeth` is a 403 for Kev.
 
+## Phone (milestone 3)
+
+1. **Push keys.** On your PC, `python scripts/make_vapid_keys.py`; put the two lines it
+   prints in the droplet's `.env`, then deploy (the deploy restarts the app).
+2. **Capture service token.** Access → Service Auth → create `table-capture`. Add a
+   Service Auth policy for it on the Table app, next to `table-agent`'s. Its Client ID
+   goes in the droplet's `.env` as `CAPTURE_SERVICE_TOKEN_ID`; keep the ID and secret
+   for the Shortcut.
+3. **Evening reminder.** On the droplet:
+
+   ```bash
+   cp /opt/table/deploy/systemd/table-reminder.* /etc/systemd/system/
+   systemctl daemon-reload && systemctl enable --now table-reminder.timer
+   ```
+
+4. **Each phone.** In Safari, open dash.sangmuah.net → Share → Add to Home Screen. Open
+   Table from the Home Screen, go to Settings and tap "Turn on for this device", then send a
+   test.
+5. **The Shortcut.** In Settings, make a capture token for the phone and copy it. In the
+   Shortcuts app, make a Shortcut that shows in the share sheet and accepts text and URLs,
+   with one "Get Contents of URL" action:
+   - URL `https://dash.sangmuah.net/api/capture`, method POST, request body JSON with
+     `text` = Shortcut Input (and optionally `to` = `table`);
+   - headers `CF-Access-Client-Id` and `CF-Access-Client-Secret` (the `table-capture`
+     token) and `X-Capture-Token` (from Settings).
+
+   Add a "Show Notification" after it if you want a confirmation. Beth does steps 4 and 5
+   on her phone with her own capture token; the service token is shared.
+
 ## Deploying
 
 `bash scripts/deploy.sh` from the repo root (Git Bash on Windows is fine). It uses the

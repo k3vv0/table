@@ -8,5 +8,6 @@ import tempfile
 
 _tmp_dir = tempfile.mkdtemp(prefix="table-test-")
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_dir}/test.db"
-for _name in ("ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "KEV_EMAILS", "BETH_EMAILS", "HOUSE_EMAILS", "AGENT_SERVICE_TOKEN_ID"):
+for _name in ("ACCESS_TEAM_DOMAIN", "ACCESS_AUD", "KEV_EMAILS", "BETH_EMAILS", "HOUSE_EMAILS", "AGENT_SERVICE_TOKEN_ID",
+              "CAPTURE_SERVICE_TOKEN_ID", "VAPID_PUBLIC_KEY", "VAPID_PRIVATE_KEY"):
     os.environ[_name] = ""

@@ -16,6 +16,10 @@ identity. Anything else gets a 403 before a route handler runs.
   `common_name` and no email. Reads the Table and Kev's Plate, never Beth's, and writes
   only what SERVICE_SCOPES lists.
 
+- capture: the "Send to Plate" iOS Shortcut's service token (CAPTURE_SERVICE_TOKEN_ID).
+  Reads nothing and may only POST /api/capture, which also checks a person's capture
+  token to know whose Plate it is.
+
 Routine tokens (sweep, morning) join SERVICE_SCOPES in milestone 4, so the audit checks one
 table. Approving anything an agent suggested is a person's job: such routes also depend on
 require_person, which refuses every service token even if a scope lists the route by
@@ -38,7 +42,7 @@ from app.config import Settings
 
 log = logging.getLogger("table.access")
 
-PERSON, AGENT = "person", "agent"
+PERSON, AGENT, CAPTURE = "person", "agent", "capture"
 KEV, ELIZABETH = "kev", "elizabeth"
 PEOPLE = (KEV, ELIZABETH)
 DISPLAY_NAMES = {KEV: "Kev", ELIZABETH: "Beth"}
@@ -79,6 +83,10 @@ def check_settings(settings: Settings) -> None:
     sets = (settings.kev_email_set, settings.beth_email_set, settings.house_email_set)
     if any(a & b for i, a in enumerate(sets) for b in sets[i + 1 :]):
         raise RuntimeError("An email is in more than one of KEV_EMAILS, BETH_EMAILS and HOUSE_EMAILS.")
+    agent_id, capture_id = settings.agent_service_token_id.strip(), settings.capture_service_token_id.strip()
+    if agent_id and agent_id == capture_id:
+        # One token can't be both roles; the capture one exists to be narrower.
+        raise RuntimeError("AGENT_SERVICE_TOKEN_ID and CAPTURE_SERVICE_TOKEN_ID must differ.")
 
 
 @lru_cache
@@ -120,8 +128,11 @@ async def identify(token: str | None, settings: Settings) -> Identity:
         raise AccessDenied(f"unknown user {email}")
 
     common_name = (claims.get("common_name") or "").strip()
-    if common_name and settings.agent_service_token_id and common_name == settings.agent_service_token_id.strip():
-        return Identity(AGENT, common_name)
+    if common_name:
+        if settings.agent_service_token_id and common_name == settings.agent_service_token_id.strip():
+            return Identity(AGENT, common_name)
+        if settings.capture_service_token_id and common_name == settings.capture_service_token_id.strip():
+            return Identity(CAPTURE, common_name)
     raise AccessDenied("unknown service token")
 
 
@@ -148,10 +159,11 @@ def _other_plates(person: str | None) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class Scope:
-    """What a service-token role may reach. Reads are everything outside blocked_prefixes;
-    writes are only the listed paths and whole-path patterns (for routes with an id in
-    them), and never under blocked_prefixes either."""
+    """What a service-token role may reach. Reads are everything outside blocked_prefixes
+    (or nothing, with reads=False); writes are only the listed paths and whole-path
+    patterns (for routes with an id in them), and never under blocked_prefixes either."""
 
+    reads: bool = True
     blocked_prefixes: tuple[str, ...] = ()
     write_exact: frozenset[str] = frozenset()
     write_patterns: tuple[re.Pattern, ...] = field(default=())
@@ -160,7 +172,7 @@ class Scope:
         if _under(path, self.blocked_prefixes):
             return False
         if method in _READ_METHODS:
-            return True
+            return self.reads
         return path in self.write_exact or any(p.fullmatch(path) for p in self.write_patterns)
 
 
@@ -168,6 +180,8 @@ SERVICE_SCOPES: dict[str, Scope] = {
     # Cloud threads working for Kev: read the Table and Kev's Plate, never Beth's. No
     # writes yet; milestone 2 onwards lists each one here.
     AGENT: Scope(blocked_prefixes=plate_prefixes(ELIZABETH)),
+    # The iOS Shortcut: files one capture, reads nothing.
+    CAPTURE: Scope(reads=False, write_exact=frozenset({"/api/capture"})),
 }
 SERVICE_ROLES = frozenset(SERVICE_SCOPES)
 
