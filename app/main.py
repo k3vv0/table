@@ -31,7 +31,22 @@ if not log.handlers:
     log.setLevel(logging.INFO)
     log.propagate = False
 
-app = FastAPI(title="table", lifespan=lifespan)
+# No /docs, /redoc or /openapi.json: nobody needs them on the live app, and every route
+# they'd list is one more thing for an agent token to probe (DESIGN.md §8).
+app = FastAPI(title="table", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+
+# Every response: scripts, styles and requests come only from this origin (no inline
+# script at all), no page can frame Table, and a link opened from Table sends no referrer.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+        "connect-src 'self'; manifest-src 'self'; worker-src 'self'; "
+        "frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+    ),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+}
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
@@ -70,6 +85,8 @@ async def _enforce_access(request: Request, call_next):
 
     request.state.identity = identity
     response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
     if path.startswith("/api/"):
         # Household data is never kept by Cloudflare or a browser cache.
         response.headers.setdefault("Cache-Control", "private, no-store")
