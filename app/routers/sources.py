@@ -20,7 +20,7 @@ from app.localtime import today_local
 from app.models import MAIL_SORTS, AgentRun, CalendarEvent, Item, KeyDate, SourceMessage, Suggestion, utcnow
 from app.routers.items import _plate_space, _table_space
 from app.services import items as svc
-from app.services import dates, push
+from app.services import dates, push, vault
 from app.services import suggestions as sugg
 
 DATE_FIELDS = ("title", "month", "day", "nth", "weekday", "year", "recurs", "weight")
@@ -154,11 +154,17 @@ def _build(router: APIRouter, space_of) -> APIRouter:
         if m.archived_at and body.sort != "noise":
             # Already moved out of the inbox; Table won't move it back, so say so.
             m.sort_reason = "Archived in Gmail as noise before this change; find it under Table/Noise."
+        was = m.sort
         m.sort, m.sorted_by, m.sorted_at = body.sort, svc.actor(identity), utcnow()
         m.sort_reason = body.reason.strip()[:300] or m.sort_reason
         svc.record(session, identity, "mail.sort", f"message:{m.id}", body.sort)
         session.add(m)
         session.commit()
+        # Vault mail is read-later: it gets an entry in the Vault view (DESIGN.md §12).
+        if body.sort == "vault":
+            vault.from_mail(session, identity, m)
+        elif was == "vault":
+            vault.off_mail(session, identity, m)
         return message_out(m)
 
     @router.get("/events")

@@ -1,4 +1,5 @@
-"""POST /api/capture: the "Send to Plate" iOS Shortcut (DESIGN.md §9).
+"""POST /api/capture: the "Send to Plate" iOS Shortcut (DESIGN.md §9), and "Save to Vault"
+with vault: true (§12).
 
 Two locks: Cloudflare Access lets the request in only with the capture service token
 (app/access.py, which allows it this one route and nothing else), and this route wants a
@@ -27,6 +28,7 @@ class CaptureIn(BaseModel):
     text: str = ""
     url: Optional[str] = None
     to: str = "plate"  # plate | table
+    vault: bool = False  # the "Save to Vault" Shortcut: a read-later link, not a task
 
 
 @router.post("/api/capture", status_code=201)
@@ -58,9 +60,11 @@ def capture(
     space = row.person if body.to == "plate" else "table"
     who = Identity(CAPTURE, f"shortcut:{row.name}", row.person)
     title = text or url
-    item = svc.create(session, who, space, title, source_kind="shortcut", source_ref=url or "")
+    kind = "link" if body.vault else "task"
+    item = svc.create(session, who, space, title, source_kind="shortcut", source_ref=url or "", kind=kind)
     row.last_used_at = utcnow()
     session.add(row)
     session.commit()
-    background.add_task(push.notify_new_item, item.id)
-    return {"id": item.id, "space": space, "title": item.title}
+    if not body.vault:  # a saved read isn't news for anyone else
+        background.add_task(push.notify_new_item, item.id)
+    return {"id": item.id, "space": space, "title": item.title, "kind": item.kind}
