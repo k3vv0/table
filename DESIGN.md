@@ -127,6 +127,7 @@ service token, listed in `SERVICE_SCOPES`.
 | `email-sort` | New mail into noise, vault or flagged | sweep |
 | `commitment-capture` | Commitments from mail and Calendar; duplicate spotting | sweep |
 | `watch-check` | Match mail to watch items; draft next steps | sweep |
+| `date-capture` | Dates sent from the phone ("Femi's birthday Jan 9") into date suggestions | sweep |
 | `date-options` | Three options for planned dates entering their window | morning |
 | `vault-picks` | Two vault picks that fit today, with summaries | morning |
 | `dates-interview` | Setup chat for birthdays, anniversaries and one-offs | on request |
