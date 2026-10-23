@@ -11,6 +11,7 @@ from app import access
 from app.config import get_settings
 from app.db import init_db
 from app.localtime import today_local
+from app.routers import items
 
 
 @asynccontextmanager
@@ -75,6 +76,10 @@ async def _enforce_access(request: Request, call_next):
     return response
 
 
+app.include_router(items.table_router)
+app.include_router(items.plate_router)
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
@@ -101,7 +106,16 @@ def _page(request: Request, template: str, active: str, **context) -> HTMLRespon
 
 @app.get("/", response_class=HTMLResponse)
 def table_page(request: Request):
-    return _page(request, "table.html", "table")
+    return _page(
+        request,
+        "board.html",
+        "table",
+        heading="The table",
+        space="table",
+        api_base="/api/table",
+        placeholder="Add something for the household…",
+        private=False,
+    )
 
 
 @app.get("/{person}", response_class=HTMLResponse)
@@ -109,4 +123,13 @@ def plate_page(person: str, request: Request):
     if person not in access.PEOPLE:
         raise HTTPException(status_code=404)
     # The middleware already refused the other person's Plate; this is the page itself.
-    return _page(request, "plate.html", person, owner=person, owner_name=access.DISPLAY_NAMES[person])
+    return _page(
+        request,
+        "board.html",
+        person,
+        heading=f"{access.DISPLAY_NAMES[person]}'s plate",
+        space=person,
+        api_base=f"/api/plates/{person}",
+        placeholder="What's on your plate?",
+        private=True,
+    )

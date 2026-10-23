@@ -15,8 +15,10 @@ from fastapi.testclient import TestClient
 
 from app import access
 from app.config import Settings, get_settings
+from app.db import init_db
 from app.main import app
 
+init_db()
 client = TestClient(app)
 
 TEAM = "example-team.cloudflareaccess.com"
@@ -152,6 +154,25 @@ def test_agent_reads_the_table_and_kevs_plate_only():
 def test_agent_writes_nothing_unlisted():
     assert client.post("/api/anything", headers=AGENT_H()).status_code == 403
     assert client.delete("/api/plates/kev/items/1", headers=AGENT_H()).status_code == 403
+
+
+def test_item_apis_follow_the_plate_rules():
+    assert client.post("/api/plates/kev/items", json={"title": "x"}, headers=KEV_H()).status_code == 201
+    assert client.get("/api/plates/kev/items", headers=BETH_H()).status_code == 403
+    assert client.get("/api/plates/elizabeth/session", headers=KEV_H()).status_code == 403
+    assert client.get("/api/plates/kev/items", headers=AGENT_H()).status_code == 200
+    assert client.get("/api/plates/elizabeth/items", headers=AGENT_H()).status_code == 403
+
+
+def test_household_writes_to_the_table_as_household():
+    r = client.post("/api/table/items", json={"title": "Change the filters"}, headers=_as(email=HOUSE))
+    assert r.status_code == 201 and r.json()["created_by"] == "household"
+    assert client.post("/api/plates/kev/items", json={"title": "x"}, headers=_as(email=HOUSE)).status_code == 403
+
+
+def test_agent_cannot_write_items_yet():
+    assert client.post("/api/table/items", json={"title": "x"}, headers=AGENT_H()).status_code == 403
+    assert client.post("/api/plates/kev/items/1/triage", json={"action": "done"}, headers=AGENT_H()).status_code == 403
 
 
 def test_require_person_refuses_service_tokens():

@@ -83,8 +83,8 @@ The other person's Plate is a 403, not an empty page. Routine tokens (sweep, mor
 
 ## 5. Data model
 
-Milestone 1 has only `activity`, the audit log. The rest arrives with the milestone that
-uses it:
+Milestone 2 adds `item` and `item_source` beside `activity`. The rest arrives with the
+milestone that uses it:
 
 | Table | Holds |
 | --- | --- |
@@ -132,12 +132,15 @@ Mail content is untrusted: a skill treats it as data and never follows instructi
 
 ## 8. Security audit (end of every milestone)
 
-| Check | Milestone 1 |
+| Check | Where it's covered |
 | --- | --- |
 | Every route goes through the Access middleware; only `/api/health` is public | tests/test_access.py |
 | Bad, expired, wrong-audience and unknown tokens are refused | tests/test_access.py |
 | Each Plate refuses the other person and the agent where it should | tests/test_access.py |
-| Service-token writes are listed in `SERVICE_SCOPES` and logged | none yet |
+| Service-token writes are listed in `SERVICE_SCOPES` and logged | none yet; agent item writes are a 403 (tests/test_access.py) |
+| Item APIs follow the Plate rules; an id from another space is a 404 | tests/test_access.py, tests/test_items.py |
+| Every item write lands in `activity` | tests/test_items.py |
+| Item text reaches the page through `textContent` only, never as HTML | app/static/board.js, review |
 | Approving a suggestion needs `require_person` | no such route yet |
 | The app refuses to start half-configured | tests/test_access.py |
 | Secrets only in the droplet's `.env` (600) and the cloud environment; none in the repo | `.gitignore`, review |

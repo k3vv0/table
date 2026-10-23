@@ -185,8 +185,9 @@ def current_identity(request: Request) -> Identity:
 
 def require_person(request: Request) -> Identity:
     """Dependency for routes that apply or approve something an agent suggested: only
-    Kev's, Beth's or the household's own sign-in may. A second lock behind SERVICE_SCOPES, so listing such
-    a route there by mistake still can't let an agent approve its own suggestion."""
+    Kev's, Beth's or the household's own sign-in may. A second lock behind
+    SERVICE_SCOPES, so listing such a route there by mistake still can't let an agent
+    approve its own suggestion."""
     identity = current_identity(request)
     if identity.role != PERSON:
         log.warning("refused %s %s: needs a person, got %s %s", request.method, request.url.path, identity.role, identity.who)
