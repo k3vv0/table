@@ -30,8 +30,6 @@
   <main class="page">
     {% block content %}{% endblock %}
   </main>
-  <script>
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
-  </script>
+  <script src="/static/sw-register.js?v={{ asset_version() }}" defer></script>
 </body>
 </html>

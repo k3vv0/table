@@ -69,6 +69,8 @@ goes in front before the hostname exists, so the app is never reachable without 
 5. **The Shortcut.** In Settings, make a capture token for the phone and copy it. In the
    Shortcuts app, make a Shortcut that shows in the share sheet and accepts text and URLs,
    with one "Get Contents of URL" action:
+   - in its details, turn on Show in Share Sheet and set Receive to **Any** input (with only
+     some types ticked, iOS hides it from Safari's share sheet);
    - URL `https://dash.sangmuah.net/api/capture`, method POST, request body JSON with
      `text` = Shortcut Input (and optionally `to` = `table`);
    - headers `CF-Access-Client-Id` and `CF-Access-Client-Secret` (the `table-capture`
@@ -146,6 +148,26 @@ goes in front before the hostname exists, so the app is never reachable without 
 3. **Morning routine.** Nothing to change: it reads `routines/morning.md` from the repo,
    which now runs `vault-picks` after `date-options`. It needs open web access to read the
    links it summarises.
+
+## Launch (milestone 7)
+
+1. **Restore check.** Download yesterday's backup from the R2 bucket's `daily/` folder and
+   run `python scripts/restore_check.py <file>.db.gz.age <age key file>` on your PC. It
+   should print `integrity: ok` and row counts that look like Table today.
+2. **Login wall over cellular.** On your phone with Wi-Fi off, open dash.sangmuah.net in a
+   private Safari tab: you should land on the Cloudflare Access Google login, not Table.
+   Then `curl -sI https://dash.sangmuah.net/api/table/items` from any machine should be a
+   302 to Access, and `curl -s https://dash.sangmuah.net/api/health` should be blocked by
+   Access too (only the droplet's own health check reaches it directly).
+3. **Invite Beth.**
+   - Her Google address in the Table Access app's policy (Access → Applications → Table),
+     and in the droplet's `.env` as `BETH_EMAILS`; deploy.
+   - On her phone: open dash.sangmuah.net in Safari, sign in with Google, Share → Add to
+     Home Screen. In Table's Settings: turn on notifications for the device, and make a
+     capture token for her Shortcuts (README "Phone", steps 4 and 5; she uses the shared
+     `table-capture` service token and her own capture token).
+   - Her Plate at /elizabeth is hers alone: Kev and every agent get a 403. Nothing syncs
+     into it unless she asks for her own mail later.
 
 ## Deploying
 

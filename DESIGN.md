@@ -49,7 +49,9 @@ Each milestone is one to three PRs, ships tests and keeps the app deployable.
    the morning routine, the money-hub goal link.
 6. **Vault.** Read-later items from the Shortcut and from mail sorted as vault; skill
    `vault-picks`, two picks a day with summaries.
-7. **Audit and launch.** §8 audit, a restore check, Beth invited.
+7. **Audit and launch.** §8 audit, a restore check, Beth invited. The audit added
+   tests/test_audit.py (every write route and who may reach it) and the page security
+   headers; README "Launch" has Kev's steps.
 
 Later: Beth's Plate if she wants one, trips and the docs vault, home inventory, meals,
 agent phases 2 and 3, a native iOS app, automatic iMessage reading (needs a Mac).
@@ -141,6 +143,8 @@ skills.
 | Check | Where it's covered |
 | --- | --- |
 | Every route goes through the Access middleware; only `/api/health` is public | tests/test_access.py |
+| Every write route is listed with exactly the service tokens that may reach it; a new route or a wider scope fails the build | tests/test_audit.py |
+| Pages send a Content-Security-Policy with no inline script, refuse framing and send no referrer; no `/docs` or `/openapi.json` | tests/test_audit.py |
 | Bad, expired, wrong-audience and unknown tokens are refused | tests/test_access.py |
 | Each Plate refuses the other person and the agent where it should | tests/test_access.py |
 | Service-token writes are listed in `SERVICE_SCOPES` and logged | tests/test_access.py; every write lands in `activity` (tests/test_sync.py) |
@@ -158,7 +162,8 @@ skills.
 | The app refuses to start half-configured | tests/test_access.py |
 | Secrets only in the droplet's `.env` (600) and the cloud environment; none in the repo | `.gitignore`, review |
 | `/api/*` responses are `private, no-store` | tests/test_access.py |
-| Backups encrypted before leaving the droplet; a restore was tested | after first deploy |
+| Backups encrypted before leaving the droplet; a restore was tested | README "Launch" step 1, by Kev |
+| The login wall holds from outside (cellular, a private tab, curl) | README "Launch" step 2, by Kev |
 | No service token adds, edits or removes a date or a person; agents file date suggestions | tests/test_access.py |
 | Beth's dates and people are hers: Kev and every agent get a 403 | tests/test_access.py |
 | Date suggestions are checked like typed dates; a goal link keeps only the goal's number | tests/test_dates.py |
