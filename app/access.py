@@ -20,7 +20,10 @@ identity. Anything else gets a 403 before a route handler runs.
   Reads nothing and may only POST /api/capture, which also checks a person's capture
   token to know whose Plate it is.
 
-Routine tokens (sweep, morning) join SERVICE_SCOPES in milestone 4, so the audit checks one
+- sweep: the sweep routine's own service token (SWEEP_SERVICE_TOKEN_ID, DESIGN.md §10).
+  Reads the Table and Kev's Plate, sorts synced mail, files suggestions and logs its runs.
+
+Every routine has its own token and its own row in SERVICE_SCOPES, so the audit checks one
 table. Approving anything an agent suggested is a person's job: such routes also depend on
 require_person, which refuses every service token even if a scope lists the route by
 mistake.
@@ -42,9 +45,10 @@ from app.config import Settings
 
 log = logging.getLogger("table.access")
 
-PERSON, AGENT, CAPTURE = "person", "agent", "capture"
+PERSON, AGENT, CAPTURE, SWEEP = "person", "agent", "capture", "sweep"
 KEV, ELIZABETH = "kev", "elizabeth"
 PEOPLE = (KEV, ELIZABETH)
+SYNC_SPACES = ("table", KEV)
 DISPLAY_NAMES = {KEV: "Kev", ELIZABETH: "Beth"}
 
 
@@ -83,10 +87,22 @@ def check_settings(settings: Settings) -> None:
     sets = (settings.kev_email_set, settings.beth_email_set, settings.house_email_set)
     if any(a & b for i, a in enumerate(sets) for b in sets[i + 1 :]):
         raise RuntimeError("An email is in more than one of KEV_EMAILS, BETH_EMAILS and HOUSE_EMAILS.")
-    agent_id, capture_id = settings.agent_service_token_id.strip(), settings.capture_service_token_id.strip()
-    if agent_id and agent_id == capture_id:
-        # One token can't be both roles; the capture one exists to be narrower.
-        raise RuntimeError("AGENT_SERVICE_TOKEN_ID and CAPTURE_SERVICE_TOKEN_ID must differ.")
+    ids = [
+        i.strip()
+        for i in (settings.agent_service_token_id, settings.capture_service_token_id, settings.sweep_service_token_id)
+        if i.strip()
+    ]
+    if len(ids) != len(set(ids)):
+        # One token can't hold two roles; each exists to be narrower than the others.
+        raise RuntimeError("AGENT_, CAPTURE_ and SWEEP_SERVICE_TOKEN_ID must all differ.")
+    try:
+        accounts, feeds = settings.mail_account_list, settings.calendar_feed_list
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+    for source in (*accounts, *feeds):
+        if source.space not in SYNC_SPACES:
+            # Beth's Plate is hers alone and agents never read it, so nothing syncs into it.
+            raise RuntimeError(f"Mail and calendars sync into {' or '.join(SYNC_SPACES)} only, not {source.space!r}.")
 
 
 @lru_cache
@@ -133,6 +149,8 @@ async def identify(token: str | None, settings: Settings) -> Identity:
             return Identity(AGENT, common_name)
         if settings.capture_service_token_id and common_name == settings.capture_service_token_id.strip():
             return Identity(CAPTURE, common_name)
+        if settings.sweep_service_token_id and common_name == settings.sweep_service_token_id.strip():
+            return Identity(SWEEP, common_name)
     raise AccessDenied("unknown service token")
 
 
@@ -176,10 +194,18 @@ class Scope:
         return path in self.write_exact or any(p.fullmatch(path) for p in self.write_patterns)
 
 
+# The spaces agents work in: the Table and Kev's Plate, as API prefixes for a regex.
+_AGENT_SPACES = r"/api/(?:table|plates/kev)"
+_SUGGEST = re.compile(_AGENT_SPACES + r"/suggestions")
+_SORT_MAIL = re.compile(_AGENT_SPACES + r"/mail/\d+")
+_RUN = re.compile(r"/api/agent-runs(?:/\d+)?")
+
 SERVICE_SCOPES: dict[str, Scope] = {
-    # Cloud threads working for Kev: read the Table and Kev's Plate, never Beth's. No
-    # writes yet; milestone 2 onwards lists each one here.
-    AGENT: Scope(blocked_prefixes=plate_prefixes(ELIZABETH)),
+    # Cloud threads working for Kev: read the Table and Kev's Plate, never Beth's. They
+    # may file suggestions; a person accepts or dismisses them.
+    AGENT: Scope(blocked_prefixes=plate_prefixes(ELIZABETH), write_patterns=(_SUGGEST,)),
+    # The sweep routine (DESIGN.md §10): sorts mail, files suggestions, logs its runs.
+    SWEEP: Scope(blocked_prefixes=plate_prefixes(ELIZABETH), write_patterns=(_SUGGEST, _SORT_MAIL, _RUN)),
     # The iOS Shortcut: files one capture, reads nothing.
     CAPTURE: Scope(reads=False, write_exact=frozenset({"/api/capture"})),
 }

@@ -11,7 +11,7 @@ from app import access
 from app.config import get_settings
 from app.db import init_db
 from app.localtime import today_local
-from app.routers import capture, items, me
+from app.routers import capture, items, me, runs, sources
 
 
 @asynccontextmanager
@@ -80,6 +80,9 @@ app.include_router(items.table_router)
 app.include_router(items.plate_router)
 app.include_router(me.router)
 app.include_router(capture.router)
+app.include_router(sources.table_router)
+app.include_router(sources.plate_router)
+app.include_router(runs.router)
 
 
 @app.get("/api/health")
@@ -162,6 +165,7 @@ def table_page(request: Request):
         api_base="/api/table",
         placeholder="Add something for the household…",
         private=False,
+        synced=True,
     )
 
 
@@ -179,4 +183,5 @@ def plate_page(person: str, request: Request):
         api_base=f"/api/plates/{person}",
         placeholder="What's on your plate?",
         private=True,
+        synced=person in access.SYNC_SPACES,
     )

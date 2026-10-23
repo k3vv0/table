@@ -26,6 +26,7 @@ class ItemIn(BaseModel):
 
 class ItemPatch(BaseModel):
     title: Optional[str] = None
+    kind: Optional[str] = None  # task | watch
     notes: Optional[str] = None
     due_on: Optional[date] = None
     owner: Optional[str] = None

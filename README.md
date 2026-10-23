@@ -77,6 +77,41 @@ goes in front before the hostname exists, so the app is never reachable without 
    Add a "Show Notification" after it if you want a confirmation. Beth does steps 4 and 5
    on her phone with her own capture token; the service token is shared.
 
+## Mail and calendar (milestone 4)
+
+1. **App passwords.** For each Gmail inbox to sync (needs 2-Step Verification): Google
+   Account → Security → App passwords, make one named "Table". Then in Gmail settings →
+   Forwarding and POP/IMAP, make sure IMAP is on.
+2. **Calendar addresses.** Google Calendar on the web → the calendar's Settings →
+   "Integrate calendar" → copy "Secret address in iCal format".
+3. **Droplet `.env`.** Add (see `.env.example`):
+
+   ```
+   MAIL_ACCOUNTS=kev|kpsangmuah03@gmail.com|<app password>;table|bethnkev2003@gmail.com|<app password>
+   CALENDAR_FEEDS=kev|<secret iCal address>;table|<secret iCal address>
+   MAIL_ARCHIVE_NOISE=false
+   ```
+
+   Deploy, then install the sync timer and run it once:
+
+   ```bash
+   cp /opt/table/deploy/systemd/table-sync.* /etc/systemd/system/
+   systemctl daemon-reload && systemctl enable --now table-sync.timer
+   systemctl start table-sync && journalctl -u table-sync -n 20
+   ```
+
+   The Mail tab on the board then shows the synced mail as "Not sorted yet".
+4. **Sweep token.** Access → Service Auth → create `table-sweep` and add a Service Auth
+   policy for it on the Table app. Its Client ID goes in the droplet's `.env` as
+   `SWEEP_SERVICE_TOKEN_ID`; deploy again.
+5. **Sweep routine.** In Claude Code on the web, make an environment `table-sweep` with
+   `TABLE_CF_ACCESS_CLIENT_ID` and `TABLE_CF_ACCESS_CLIENT_SECRET` set to the
+   `table-sweep` token, and network access to `dash.sangmuah.net`. Then a routine on this
+   repo, in that environment, a few times a day (e.g. 7am, noon, 5pm Eastern), whose prompt
+   is the contents of `routines/sweep.md`.
+6. After a week of sorts that look right in the Mail tab, set `MAIL_ARCHIVE_NOISE=true` and
+   deploy: noise then leaves the inbox under the `Table/Noise` label.
+
 ## Deploying
 
 `bash scripts/deploy.sh` from the repo root (Git Bash on Windows is fine). It uses the
