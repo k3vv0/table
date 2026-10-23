@@ -1,0 +1,11 @@
+fastapi==0.156.4
+starlette==1.9.0  # pinned: >=1.3.1 for the Host/path advisories (money-hub DESIGN.md §14d)
+uvicorn[standard]==0.54.0
+sqlmodel==0.0.22
+pydantic-settings==2.6.1
+python-dotenv==1.2.4
+jinja2==3.1.6
+python-multipart==0.0.32
+PyJWT[crypto]==2.15.0  # verifies Cloudflare Access tokens (app/access.py)
+cryptography==50.0.2
+tzdata==2026.4  # zoneinfo (app/localtime.py) needs this on Windows
