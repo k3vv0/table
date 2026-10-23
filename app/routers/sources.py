@@ -17,7 +17,7 @@ from sqlmodel import Session, col, select
 from app.access import current_identity, require_person
 from app.db import get_session
 from app.localtime import today_local
-from app.models import MAIL_SORTS, AgentRun, CalendarEvent, Item, KeyDate, SourceMessage, Suggestion, utcnow
+from app.models import MAIL_SORTS, AgentRun, CalendarEvent, Item, KeyDate, SourceMessage, Suggestion, Trip, utcnow
 from app.routers.items import _plate_space, _table_space
 from app.services import items as svc
 from app.services import dates, push, vault
@@ -43,7 +43,9 @@ class SuggestionIn(BaseModel):
     source_kind: str = ""
     source_ref: str = ""
     rationale: str = ""
-    payload: dict = Field(default_factory=dict)  # kind date: the date's fields; kind goal: moneyhub_goal_id
+    # kind date: the date's fields; goal: moneyhub_goal_id; trip: the trip; module: trip_id
+    # (and module_id for a refresh) with the module's fields (DESIGN.md §13)
+    payload: dict = Field(default_factory=dict)
     run_id: Optional[int] = None
 
 
@@ -52,6 +54,7 @@ class AcceptIn(BaseModel):
     notes: Optional[str] = None
     due_on: Optional[date] = None
     today: bool = False
+    state: Optional[str] = None  # kind module: accept straight as chosen ("Flying this one")
 
 
 def message_out(m: SourceMessage) -> dict:
@@ -101,6 +104,9 @@ def suggestion_out(session: Session, s: Suggestion) -> dict:
     payload = json.loads(s.payload) if s.payload else {}
     if s.kind == "date" and payload:
         payload["rule"] = dates.describe(KeyDate(space=s.space, **{k: v for k, v in payload.items() if k in DATE_FIELDS}))
+    if s.kind == "module" and payload.get("trip_id"):
+        trip = session.get(Trip, payload["trip_id"])
+        payload["trip_title"] = trip.title if trip else ""
     ids = [i for i in [s.item_id, *(int(x) for x in s.merge_ids.split(",") if x)] if i]
     titles = {i.id: i.title for i in session.exec(select(Item).where(col(Item.id).in_(ids)))} if ids else {}
     return {

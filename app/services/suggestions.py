@@ -5,7 +5,9 @@ source message or event was synced into it, the items are open and belong to it.
 is suggested as a new item at most once, so a dismissed suggestion never comes back on
 the next sweep. A date suggestion (from dates-interview) carries the date in payload and
 is checked like a date a person types in; a goal suggestion carries only a money-hub goal's
-number. Accepting is the only path from a suggestion to a change, and its route
+number. A trip suggestion (trip-start, trip-capture) carries a new trip, and a module
+suggestion an option on a trip, or a refresh of one (trip-options); both are Table only
+(DESIGN.md §13). Accepting is the only path from a suggestion to a change, and its route
 depends on require_person.
 """
 
@@ -24,10 +26,13 @@ from app.models import (
     KeyDate,
     SourceMessage,
     Suggestion,
+    Trip,
+    TripModule,
     utcnow,
 )
 from app.services import dates
 from app.services import items as svc
+from app.services import trips
 from app.localtime import today_local
 
 ITEM_KINDS = ("task", "watch")
@@ -106,6 +111,10 @@ def file(session: Session, identity: Identity, space: str, body: dict, run_id: i
             )
         ).first():
             raise HTTPException(status_code=409, detail="That date is already here or already suggested.")
+    elif kind == "trip":
+        _file_trip(session, s, body)
+    elif kind == "module":
+        _file_module(session, s, body)
     elif kind == "item":
         if not title:
             raise HTTPException(status_code=422, detail="A new item needs a title.")
@@ -162,6 +171,72 @@ def file(session: Session, identity: Identity, space: str, body: dict, run_id: i
     return s
 
 
+def _table_only(s: Suggestion) -> None:
+    if s.space != "table":
+        raise HTTPException(status_code=422, detail="Trips live on the Table.")
+
+
+def _file_trip(session: Session, s: Suggestion, body: dict) -> None:
+    _table_only(s)
+    payload = body.get("payload") or {}
+    fields = trips.clean_trip(payload)
+    if fields["status"] not in ("idea", "planning"):
+        raise HTTPException(status_code=422, detail="A suggested trip is an idea or in planning.")
+    key_date_id = payload.get("key_date_id")
+    if key_date_id is not None:
+        kd = session.get(KeyDate, key_date_id)
+        if kd is None or kd.space != "table" or not kd.active:
+            raise HTTPException(status_code=422, detail="key_date_id must be a date on the Table.")
+        if session.exec(select(Trip.id).where(Trip.key_date_id == key_date_id, col(Trip.status).in_(trips.OPEN_TRIPS))).first():
+            raise HTTPException(status_code=409, detail="That date already has a trip.")
+    s.title = fields["title"]
+    s.notes = fields["notes"]
+    pending = session.exec(
+        select(Suggestion.id).where(Suggestion.kind == "trip", Suggestion.status == "pending", Suggestion.title == s.title)
+    ).first()
+    if pending or trips._dup_title(session, s.title):
+        raise HTTPException(status_code=409, detail="That trip is already here or already suggested.")
+    s.payload = json.dumps({**{k: (v.isoformat() if isinstance(v, date) else v) for k, v in fields.items()}, "key_date_id": key_date_id})
+
+
+def _file_module(session: Session, s: Suggestion, body: dict) -> None:
+    _table_only(s)
+    payload = body.get("payload") or {}
+    trip_id, module_id = payload.get("trip_id"), payload.get("module_id")
+    if not isinstance(trip_id, int):
+        raise HTTPException(status_code=422, detail="A module suggestion needs payload.trip_id.")
+    trip = trips.get_trip(session, trip_id)
+    if trip.status not in trips.OPEN_TRIPS:
+        raise HTTPException(status_code=409, detail=f"That trip is {trip.status}.")
+    current = None
+    if module_id is not None:
+        # A refresh of an option already on the trip: new price, new times.
+        m = trips.get_module(session, trip, module_id)
+        if m.state != "option":
+            raise HTTPException(status_code=409, detail="Only an option can be refreshed; this one is chosen or done.")
+        current = {k: getattr(m, k) for k in trips.MODULE_FIELDS}
+    fields = trips.clean_module(trip, {k: v for k, v in payload.items() if k in trips.MODULE_FIELDS and k not in ("state", "confirmation")}, current)
+    fields["state"] = "option"
+    fields.pop("confirmation", None)
+    s.title = fields["title"]
+    s.notes = fields["notes"]
+    out = {k: (v.isoformat() if isinstance(v, date) else v) for k, v in fields.items()}
+    for other in session.exec(
+        select(Suggestion).where(Suggestion.kind == "module", Suggestion.status == "pending", Suggestion.space == "table")
+    ):
+        p = json.loads(other.payload or "{}")
+        same = p.get("module_id") == module_id if module_id is not None else (p.get("title") == out["title"] and p.get("starts_on") == out["starts_on"])
+        if p.get("trip_id") == trip.id and same:
+            raise HTTPException(status_code=409, detail="There's already a pending suggestion like that.")
+    if module_id is None and session.exec(
+        select(TripModule.id).where(
+            TripModule.trip_id == trip.id, TripModule.title == out["title"], TripModule.starts_on == fields["starts_on"], TripModule.state != "dropped"
+        )
+    ).first():
+        raise HTTPException(status_code=409, detail="That option is already on the trip.")
+    s.payload = json.dumps({**out, "trip_id": trip.id, "module_id": module_id})
+
+
 def get(session: Session, space: str, suggestion_id: int) -> Suggestion:
     s = session.get(Suggestion, suggestion_id)
     if s is None or s.space != space:
@@ -174,12 +249,32 @@ def get(session: Session, space: str, suggestion_id: int) -> Suggestion:
 def accept(session: Session, identity: Identity, s: Suggestion, edits: dict) -> Item | None:
     """Apply a suggestion. edits may change an item suggestion's title, notes or due date,
     or put it straight on today's plate. A date suggestion adds the date (and its person)
-    and returns None: there's no item until the date's window opens."""
-    if s.kind == "date":
-        kd = dates.add_date(session, identity, s.space, json.loads(s.payload))
+    and returns None: there's no item until the date's window opens. Trip and module
+    suggestions add or refresh trips and return None too; edits may carry a module's state."""
+    if s.kind in ("date", "trip", "module"):
+        payload = json.loads(s.payload)
+        if s.kind == "date":
+            target = f"date:{dates.add_date(session, identity, s.space, payload).id}"
+        elif s.kind == "trip":
+            target = f"trip:{trips.create_trip(session, identity, payload).id}"
+        else:
+            trip = trips.get_trip(session, payload["trip_id"])
+            fields = {k: v for k, v in payload.items() if k in trips.MODULE_FIELDS}
+            if edits.get("state"):
+                fields["state"] = edits["state"]  # "Flying this one": accept and choose in one tap
+            if edits.get("state") and edits["state"] not in ("option", "chosen", "booked"):
+                raise HTTPException(status_code=422, detail="state must be option, chosen or booked.")
+            if payload.get("module_id") is not None:
+                m = trips.get_module(session, trip, payload["module_id"])
+                if m.state != "option":
+                    raise HTTPException(status_code=409, detail="That option was already chosen or dropped; dismiss this refresh.")
+                m = trips.update_module(session, identity, trip, m, fields)
+            else:
+                m = trips.add_module(session, identity, trip, fields)
+            target = f"module:{m.id}"
         s.status, s.decided_by, s.decided_at = "accepted", svc.actor(identity), utcnow()
         session.add(s)
-        svc.record(session, identity, "suggestion.accept", f"suggestion:{s.id}", f"date:{kd.id}")
+        svc.record(session, identity, "suggestion.accept", f"suggestion:{s.id}", target)
         session.commit()
         return None
     if s.kind == "item":

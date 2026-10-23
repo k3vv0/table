@@ -1,0 +1,10 @@
+[Unit]
+Description=Table standby check pushes, every 15 minutes
+
+[Timer]
+OnBootSec=3min
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

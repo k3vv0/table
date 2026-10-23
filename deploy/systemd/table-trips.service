@@ -1,0 +1,19 @@
+# Standby check pushes for trips (scripts/trip_checks.py, DESIGN.md
+# §13). Installed by hand once: see README.md "Trips".
+[Unit]
+Description=Table trip checks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=table
+Group=table
+WorkingDirectory=/opt/table
+EnvironmentFile=/opt/table/.env
+ExecStart=/opt/table/.venv/bin/python /opt/table/scripts/trip_checks.py
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/table/data
