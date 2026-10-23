@@ -1,0 +1,19 @@
+# Date alerts: prep items and pushes for key dates (scripts/date_alerts.py, DESIGN.md
+# §11). Installed by hand once: see README.md "People and dates".
+[Unit]
+Description=Table date alerts
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=table
+Group=table
+WorkingDirectory=/opt/table
+EnvironmentFile=/opt/table/.env
+ExecStart=/opt/table/.venv/bin/python /opt/table/scripts/date_alerts.py
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/table/data

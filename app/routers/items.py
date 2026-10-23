@@ -30,6 +30,7 @@ class ItemPatch(BaseModel):
     notes: Optional[str] = None
     due_on: Optional[date] = None
     owner: Optional[str] = None
+    moneyhub_goal_id: Optional[int] = None  # a money-hub goal's number; null unlinks
 
 
 class TriageIn(BaseModel):
@@ -66,6 +67,7 @@ def _out(item: Item, sources: list[dict]) -> dict:
         "created_by": item.created_by,
         "created_at": item.created_at.isoformat(),
         "done_at": item.done_at.isoformat() if item.done_at else None,
+        "moneyhub_goal_id": item.moneyhub_goal_id,
         "sources": sources,
     }
 

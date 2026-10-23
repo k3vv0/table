@@ -11,7 +11,7 @@ from app import access
 from app.config import get_settings
 from app.db import init_db
 from app.localtime import today_local
-from app.routers import capture, items, me, runs, sources
+from app.routers import capture, dates, items, me, runs, sources
 
 
 @asynccontextmanager
@@ -82,6 +82,8 @@ app.include_router(me.router)
 app.include_router(capture.router)
 app.include_router(sources.table_router)
 app.include_router(sources.plate_router)
+app.include_router(dates.table_router)
+app.include_router(dates.plate_router)
 app.include_router(runs.router)
 
 
@@ -105,7 +107,7 @@ def _page(request: Request, template: str, active: str, **context) -> HTMLRespon
     return templates.TemplateResponse(
         request,
         template,
-        {"active": active, "me": identity, "today": today_local(), **context},
+        {"active": active, "me": identity, "today": today_local(), "moneyhub_url": get_settings().moneyhub_url, **context},
     )
 
 

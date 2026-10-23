@@ -3,10 +3,13 @@
 Filing checks that whatever a suggestion points at is real and in the same space: the
 source message or event was synced into it, the items are open and belong to it. A source
 is suggested as a new item at most once, so a dismissed suggestion never comes back on
-the next sweep. Accepting is the only path from a suggestion to a change, and its route
+the next sweep. A date suggestion (from dates-interview) carries the date in payload and
+is checked like a date a person types in; a goal suggestion carries only a money-hub goal's
+number. Accepting is the only path from a suggestion to a change, and its route
 depends on require_person.
 """
 
+import json
 from datetime import date
 
 from fastapi import HTTPException
@@ -18,10 +21,12 @@ from app.models import (
     CalendarEvent,
     Item,
     ItemSource,
+    KeyDate,
     SourceMessage,
     Suggestion,
     utcnow,
 )
+from app.services import dates
 from app.services import items as svc
 from app.localtime import today_local
 
@@ -85,7 +90,23 @@ def file(session: Session, identity: Identity, space: str, body: dict, run_id: i
         created_by=svc.actor(identity),
         run_id=run_id,
     )
-    if kind == "item":
+    if kind == "date":
+        payload = body.get("payload") or {}
+        fields = dates.clean(space, payload)
+        s.title = fields["title"]
+        s.notes = fields["notes"]
+        person = (payload.get("person_name") or "").strip()[:120]
+        relation = (payload.get("relation") or "").strip()[:200]
+        s.payload = json.dumps({**fields, "person_name": person, "relation": relation})
+        if session.exec(
+            select(KeyDate.id).where(KeyDate.space == space, KeyDate.active == True, KeyDate.title == s.title)  # noqa: E712
+        ).first() or session.exec(
+            select(Suggestion.id).where(
+                Suggestion.space == space, Suggestion.kind == "date", Suggestion.status == "pending", Suggestion.title == s.title
+            )
+        ).first():
+            raise HTTPException(status_code=409, detail="That date is already here or already suggested.")
+    elif kind == "item":
         if not title:
             raise HTTPException(status_code=422, detail="A new item needs a title.")
         s.item_kind = body.get("item_kind") or "task"
@@ -109,6 +130,11 @@ def file(session: Session, identity: Identity, space: str, body: dict, run_id: i
     else:
         item = _open_item(session, space, body.get("item_id"))
         s.item_id = item.id
+        if kind == "goal":
+            goal = (body.get("payload") or {}).get("moneyhub_goal_id")
+            if not isinstance(goal, int) or goal < 1:
+                raise HTTPException(status_code=422, detail="A goal suggestion needs payload.moneyhub_goal_id.")
+            s.payload = json.dumps({"moneyhub_goal_id": goal})
         if kind == "note" and not notes:
             raise HTTPException(status_code=422, detail="A note suggestion needs notes.")
         if kind == "merge":
@@ -147,7 +173,15 @@ def get(session: Session, space: str, suggestion_id: int) -> Suggestion:
 
 def accept(session: Session, identity: Identity, s: Suggestion, edits: dict) -> Item | None:
     """Apply a suggestion. edits may change an item suggestion's title, notes or due date,
-    or put it straight on today's plate."""
+    or put it straight on today's plate. A date suggestion adds the date (and its person)
+    and returns None: there's no item until the date's window opens."""
+    if s.kind == "date":
+        kd = dates.add_date(session, identity, s.space, json.loads(s.payload))
+        s.status, s.decided_by, s.decided_at = "accepted", svc.actor(identity), utcnow()
+        session.add(s)
+        svc.record(session, identity, "suggestion.accept", f"suggestion:{s.id}", f"date:{kd.id}")
+        session.commit()
+        return None
     if s.kind == "item":
         item = svc.create(
             session,
@@ -169,6 +203,9 @@ def accept(session: Session, identity: Identity, s: Suggestion, edits: dict) -> 
         if s.due_on:
             changes["due_on"] = s.due_on
         item = svc.update(session, identity, item, changes)
+    elif s.kind == "goal":
+        item = _open_item(session, s.space, s.item_id)
+        item = svc.update(session, identity, item, {"moneyhub_goal_id": json.loads(s.payload)["moneyhub_goal_id"]})
     elif s.kind == "merge":
         item = svc.merge(session, identity, s.space, s.item_id, [int(i) for i in s.merge_ids.split(",") if i])
     else:  # close

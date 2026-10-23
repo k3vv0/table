@@ -77,6 +77,7 @@ expiry. No valid token, no access; `/api/health` is the only public path.
 | agent | service token Client ID `AGENT_SERVICE_TOKEN_ID` | reads the Table and Kev's Plate; files suggestions, nothing else |
 | capture | service token Client ID `CAPTURE_SERVICE_TOKEN_ID` (the iOS Shortcut) | `POST /api/capture` only, and that route also wants a person's capture token (§9) |
 | sweep | service token Client ID `SWEEP_SERVICE_TOKEN_ID` (the sweep routine) | reads the Table and Kev's Plate; sorts synced mail, files suggestions, opens and closes its runs (§10) |
+| morning | service token Client ID `MORNING_SERVICE_TOKEN_ID` (the morning routine) | reads the Table and Kev's Plate; files suggestions, opens and closes its runs (§11) |
 
 The other person's Plate is a 403, not an empty page. Each routine has its own token and
 its own row in `SERVICE_SCOPES`. Routes that apply a suggestion depend on
@@ -93,7 +94,7 @@ milestone that uses it:
 | `item` | Every commitment, watch, date prep and vault link: `space`, `owner` (blank = shared), `kind`, `status` (inbox, today, later, done, merged), `due_on`, `defer_until`, `merged_into_id`, `automated`, `created_by`, `moneyhub_goal_id` |
 | `item_source` | Where an item came from; several after a merge |
 | `source_message`, `calendar_event` | Synced mail headers and excerpts; synced events |
-| `person`, `key_date` | People and their dates, with a weight and lead time |
+| `person`, `key_date`, `date_alert` | People and their dates, with a weight; which alerts went out for which occurrence |
 | `suggestion` | Anything an agent proposes, pending until a person accepts or dismisses it |
 | `vault_pick` | The daily read-later picks |
 | `push_subscription`, `capture_token` | Phone push endpoints and the Shortcut's token |
@@ -157,6 +158,11 @@ skills.
 | Secrets only in the droplet's `.env` (600) and the cloud environment; none in the repo | `.gitignore`, review |
 | `/api/*` responses are `private, no-store` | tests/test_access.py |
 | Backups encrypted before leaving the droplet; a restore was tested | after first deploy |
+| No service token adds, edits or removes a date or a person; agents file date suggestions | tests/test_access.py |
+| Beth's dates and people are hers: Kev and every agent get a 403 | tests/test_access.py |
+| Date suggestions are checked like typed dates; a goal link keeps only the goal's number | tests/test_dates.py |
+| Links in notes open only `https://` and render through `textContent` | app/static/board.js, review |
+| date-options never buys, books or holds anything | the skill, review |
 | Dependencies pass `pip-audit` | CI |
 
 ## 9. Phone
@@ -220,3 +226,34 @@ Milestone 4. Plain code fetches; agents sort and suggest; people decide.
 - **The sweep routine** (`routines/sweep.md`) runs `email-sort`, `commitment-capture` and
   `watch-check` a few times a day, as a Claude Code routine with this repo checked out and
   the `table-sweep` token.
+
+## 11. People and dates
+
+Milestone 5. Dates arrive with options ready instead of as a surprise.
+
+- **People and dates.** `person` and `key_date` live in a space like items. A date is a
+  fixed day (Nov 22) or a rule (the second Sunday of May), yearly or once; a yearly date's
+  year is its first one, so the board can say "turns 30". On the Table a date can be Kev's
+  or Beth's job. Anything about Beth (her birthday, the anniversary) belongs on Kev's
+  Plate so the planning stays a surprise. The board's Dates tab adds, edits and removes
+  them, and each person has notes (what they like) that `date-options` reads.
+- **Weights.** *Planned*: 30 days ahead a `date` item goes into the inbox, due on the day,
+  with a push. *Light*: the day before, the item goes onto today's plate, with a push.
+  Both push again on the day. `scripts/date_alerts.py` on `table-dates.timer` (6:30am
+  Eastern) does this from a window, so a missed morning catches up, and `date_alert`
+  keeps any alert from going out twice.
+- **Preloaded dates.** Valentine's, Girlfriend's Day, Mother's and Father's Day,
+  Thanksgiving, Christmas, New Year's Eve, Halloween and Tax Day are offered on each
+  board's Dates tab, one tap to add. Birthdays and anniversaries need real days, so the
+  `dates-interview` skill asks for them (and for one-offs like the 2027 graduations) and
+  files each as a `date` suggestion to accept.
+- **The morning routine** (`routines/morning.md`, its own `table-morning` token) runs
+  `date-options`: for each planned date whose prep item is up, three options with links,
+  filed as a `note` suggestion on the item. Phase 1 of the agent ladder only: it never
+  buys, books or holds. `vault-picks` joins it in milestone 6.
+- **The money-hub goal link.** An item can carry `moneyhub_goal_id`, set by hand in its
+  editor or by accepting a `goal` suggestion; the board shows it and links to money-hub's
+  Goals page. A plan that needs saving becomes a goal by filing a goal *proposal* in
+  money-hub (its `goal-modeling` skill, from a project thread with money-hub access), which
+  Kev or Beth approves there. Only the goal's number crosses over; Table never copies
+  money data.
