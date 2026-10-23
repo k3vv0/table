@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # Plate is theirs alone.
     kev_emails: str = ""
     beth_emails: str = ""
+    # Shared household sign-ins (a joint Google account): the Table only, no Plate.
+    house_emails: str = ""
     # Client ID (not the secret) of the service token this project's cloud sessions use.
     agent_service_token_id: str = ""
 
@@ -30,6 +32,10 @@ class Settings(BaseSettings):
     @property
     def beth_email_set(self) -> set[str]:
         return _email_set(self.beth_emails)
+
+    @property
+    def house_email_set(self) -> set[str]:
+        return _email_set(self.house_emails)
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=False, extra="ignore"

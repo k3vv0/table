@@ -9,8 +9,8 @@ DESIGN.md is the spec; §2 is the milestone plan.
 
 - `pip install -r requirements.txt -r requirements-dev.txt`, then `python -m pytest -q`.
   Tests use a throwaway database (tests/conftest.py); they never touch real data.
-- Local runs need no Access settings: leave the `ACCESS_*`, `KEV_EMAILS`, `BETH_EMAILS`
-  and `AGENT_SERVICE_TOKEN_ID` values blank and every request is Kev.
+- Local runs need no Access settings: leave the `ACCESS_*`, `*_EMAILS` and
+  `AGENT_SERVICE_TOKEN_ID` values blank and every request is Kev.
 - `uvicorn app.main:app --reload --port 8010` runs it locally.
 - Never commit `.env`, anything under `data/`, or a real token or key.
 - "Today" is always `app.localtime.today_local()` (US Eastern), never `date.today()`.

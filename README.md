@@ -20,7 +20,8 @@ goes in front before the hostname exists, so the app is never reachable without 
 
 1. **Access application.** Zero Trust → Access → Applications → Add a self-hosted app
    named "Table" for `dash.sangmuah.net`, covering the whole host. Google login; a policy
-   allowing Kev's and Beth's emails. Copy its Application Audience (AUD) tag.
+   allowing Kev's, Beth's and the joint household account's emails. Copy its Application
+   Audience (AUD) tag.
 2. **Tunnel hostname.** On the existing tunnel, add the public hostname
    `dash.sangmuah.net` → `http://localhost:8010`.
 3. **Service token.** Access → Service Auth → create `table-agent`. Add a Service Auth

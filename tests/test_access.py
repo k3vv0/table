@@ -24,6 +24,7 @@ AUD = "test-aud-tag"
 KEV = "kev@example.com"
 KEV_WORK = "kev@syncyn.example"
 BETH = "beth@example.com"
+HOUSE = "us@example.com"
 AGENT_ID = "agent-client-id.access"
 
 _key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -48,6 +49,7 @@ def access_on(monkeypatch):
     monkeypatch.setenv("ACCESS_AUD", AUD)
     monkeypatch.setenv("KEV_EMAILS", f"{KEV}, {KEV_WORK}")
     monkeypatch.setenv("BETH_EMAILS", BETH)
+    monkeypatch.setenv("HOUSE_EMAILS", HOUSE)
     monkeypatch.setenv("AGENT_SERVICE_TOKEN_ID", AGENT_ID)
     monkeypatch.setattr(access, "_signing_key", lambda token, team: _key.public_key())
     get_settings.cache_clear()
@@ -64,7 +66,7 @@ AGENT_H = lambda: _as(common_name=AGENT_ID)  # noqa: E731
 
 
 def test_access_off_treats_everyone_as_kev(monkeypatch):
-    for name in ("ACCESS_TEAM_DOMAIN", "BETH_EMAILS"):
+    for name in ("ACCESS_TEAM_DOMAIN", "BETH_EMAILS", "HOUSE_EMAILS"):
         monkeypatch.setenv(name, "")
     get_settings.cache_clear()
     for path in ("/", "/kev"):
@@ -131,6 +133,15 @@ def test_a_plate_prefix_does_not_swallow_a_neighbour():
     assert access.allowed(access.Identity(access.PERSON, BETH, access.ELIZABETH), "GET", "/kevin-notes") is True
 
 
+def test_household_sign_in_reaches_the_table_but_no_plate():
+    house = _as(email=HOUSE)
+    assert client.get("/api/me", headers=house).json() == {"role": "person", "person": None, "name": "Household"}
+    assert client.get("/", headers=house).status_code == 200
+    assert client.get("/kev", headers=house).status_code == 403
+    assert client.get("/elizabeth", headers=house).status_code == 403
+    assert "My plate" not in client.get("/", headers=house).text
+
+
 def test_agent_reads_the_table_and_kevs_plate_only():
     assert client.get("/", headers=AGENT_H()).status_code == 200
     assert client.get("/kev", headers=AGENT_H()).status_code == 200
@@ -169,10 +180,12 @@ def test_api_responses_are_never_cached():
         ({"access_team_domain": TEAM, "kev_emails": KEV}, "ACCESS_AUD"),
         ({"access_team_domain": TEAM, "access_aud": AUD}, "KEV_EMAILS"),
         ({"beth_emails": BETH}, "ACCESS_TEAM_DOMAIN"),
-        ({"access_team_domain": TEAM, "access_aud": AUD, "kev_emails": KEV, "beth_emails": KEV}, "both"),
+        ({"house_emails": HOUSE}, "ACCESS_TEAM_DOMAIN"),
+        ({"access_team_domain": TEAM, "access_aud": AUD, "kev_emails": KEV, "beth_emails": KEV}, "more than one"),
+        ({"access_team_domain": TEAM, "access_aud": AUD, "kev_emails": KEV, "house_emails": KEV}, "more than one"),
     ],
 )
 def test_check_settings_refuses_half_configured(values, message):
-    blank = dict(access_team_domain="", access_aud="", kev_emails="", beth_emails="", agent_service_token_id="")
+    blank = dict(access_team_domain="", access_aud="", kev_emails="", beth_emails="", house_emails="", agent_service_token_id="")
     with pytest.raises(RuntimeError, match=message):
         access.check_settings(Settings(_env_file=None, **{**blank, **values}))

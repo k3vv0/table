@@ -9,6 +9,8 @@ identity. Anything else gets a 403 before a route handler runs.
 - person: Kev (KEV_EMAILS) or Beth (BETH_EMAILS). Both share the Table at `/`. Each one's
   Plate (`/kev`, `/elizabeth` and its API under `/api/plates/<name>`) is theirs alone:
   the other person gets a 403, not an empty page.
+- household: the joint Google account (HOUSE_EMAILS). A person at the keyboard, so it may
+  approve suggestions on the Table, but it has no Plate and reaches neither person's.
 - agent: this project's cloud sessions, signing in with a Cloudflare Access service token
   whose Client ID is AGENT_SERVICE_TOKEN_ID. Service-token JWTs carry that Client ID in
   `common_name` and no email. Reads the Table and Kev's Plate, never Beth's, and writes
@@ -46,10 +48,12 @@ DISPLAY_NAMES = {KEV: "Kev", ELIZABETH: "Beth"}
 class Identity:
     role: str  # person | agent
     who: str  # email, the service token's Client ID, or "local" when Access is off
-    person: str | None = None  # kev | elizabeth, for a person
+    person: str | None = None  # kev | elizabeth, or None for the household sign-in
 
     @property
     def name(self) -> str:
+        if self.role == PERSON and self.person is None:
+            return "Household"
         return DISPLAY_NAMES.get(self.person or "", self.role)
 
 
@@ -70,8 +74,11 @@ def check_settings(settings: Settings) -> None:
         # Without Access verification Beth would silently be signed in as Kev and see his
         # Plate, so this is a deploy that forgot the Access settings.
         raise RuntimeError("BETH_EMAILS is set but ACCESS_TEAM_DOMAIN is blank; add the Access settings.")
-    if settings.kev_email_set & settings.beth_email_set:
-        raise RuntimeError("An email is in both KEV_EMAILS and BETH_EMAILS.")
+    if settings.house_emails and not settings.access_team_domain:
+        raise RuntimeError("HOUSE_EMAILS is set but ACCESS_TEAM_DOMAIN is blank; add the Access settings.")
+    sets = (settings.kev_email_set, settings.beth_email_set, settings.house_email_set)
+    if any(a & b for i, a in enumerate(sets) for b in sets[i + 1 :]):
+        raise RuntimeError("An email is in more than one of KEV_EMAILS, BETH_EMAILS and HOUSE_EMAILS.")
 
 
 @lru_cache
@@ -108,6 +115,8 @@ async def identify(token: str | None, settings: Settings) -> Identity:
             return Identity(PERSON, email, KEV)
         if email in settings.beth_email_set:
             return Identity(PERSON, email, ELIZABETH)
+        if email in settings.house_email_set:
+            return Identity(PERSON, email)
         raise AccessDenied(f"unknown user {email}")
 
     common_name = (claims.get("common_name") or "").strip()
@@ -133,6 +142,7 @@ def _under(path: str, prefixes: tuple[str, ...]) -> bool:
 
 
 def _other_plates(person: str | None) -> tuple[str, ...]:
+    # The household sign-in (person None) has no Plate, so every Plate is someone else's.
     return tuple(p for other in PEOPLE if other != person for p in plate_prefixes(other))
 
 
@@ -175,10 +185,10 @@ def current_identity(request: Request) -> Identity:
 
 def require_person(request: Request) -> Identity:
     """Dependency for routes that apply or approve something an agent suggested: only
-    Kev's or Beth's own sign-in may. A second lock behind SERVICE_SCOPES, so listing such
+    Kev's, Beth's or the household's own sign-in may. A second lock behind SERVICE_SCOPES, so listing such
     a route there by mistake still can't let an agent approve its own suggestion."""
     identity = current_identity(request)
     if identity.role != PERSON:
         log.warning("refused %s %s: needs a person, got %s %s", request.method, request.url.path, identity.role, identity.who)
-        raise HTTPException(status_code=403, detail="Needs Kev's or Beth's own sign-in.")
+        raise HTTPException(status_code=403, detail="Needs a person's own sign-in, not an agent.")
     return identity

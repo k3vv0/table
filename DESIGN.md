@@ -73,6 +73,7 @@ expiry. No valid token, no access; `/api/health` is the only public path.
 | --- | --- | --- |
 | Kev | email in `KEV_EMAILS` | the Table and `/kev`, `/api/plates/kev` |
 | Beth | email in `BETH_EMAILS` | the Table and `/elizabeth`, `/api/plates/elizabeth` |
+| Household | email in `HOUSE_EMAILS` (the joint Google account) | the Table only; may approve, since a person is signed in |
 | agent | service token Client ID `AGENT_SERVICE_TOKEN_ID` | reads the Table and Kev's Plate; writes only what `SERVICE_SCOPES` lists (none yet) |
 
 The other person's Plate is a 403, not an empty page. Routine tokens (sweep, morning) join
