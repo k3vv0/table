@@ -8,7 +8,7 @@
   const TODAY = board.dataset.today; // YYYY-MM-DD, US Eastern, from the server
   const SYNCED = board.dataset.synced === "1"; // mail and calendar sync into this space
   const MONEYHUB = board.dataset.moneyhub; // where a money-hub goal link points
-  const VIEWS = ["today", "inbox", "later", "done", "session", "review", "dates", ...(SYNCED ? ["mail"] : [])];
+  const VIEWS = ["today", "inbox", "later", "done", "session", "review", "dates", "vault", ...(SYNCED ? ["mail"] : [])];
   const list = document.getElementById("list");
   const statusEl = document.getElementById("status");
   const mergeBar = document.getElementById("merge-bar");
@@ -623,6 +623,89 @@
     list.replaceChildren(...parts);
   }
 
+  // --- the vault (DESIGN.md §12) ---------------------------------------------------------------
+  // Read-later links. Each morning two get picked for today with a summary. Titles, senders
+  // and summaries come from mail and the web, so they only go in through textContent.
+
+  const httpsOnly = (url) => (url && url.startsWith("https://") ? url : null);
+
+  async function markRead(id, word = "Marked read.") {
+    try {
+      await api("POST", `/items/${id}/triage`, { action: "done" });
+      toast(word);
+      await render();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function entryRow(e, pick) {
+    const btn = (text, fn, cls = "btn small") => el("button", { type: "button", class: cls, text, onclick: fn });
+    const href = httpsOnly(e.url);
+    const meta = el("div", { class: "meta" });
+    if (e.from) meta.append(el("span", { class: "chip", text: `Mail from ${e.from}` }));
+    else if (e.url) meta.append(el("span", { class: "chip", text: e.url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] }));
+    meta.append(el("span", { class: "chip", text: `Saved ${new Date(`${e.created_at}Z`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` }));
+    const actions = [];
+    if (href) actions.push(el("a", { class: "btn small primary", href, target: "_blank", rel: "noopener noreferrer", text: e.from ? "Open in Gmail" : "Open" }));
+    actions.push(btn("Read", () => markRead(e.id)), btn("Remove", () => markRead(e.id, "Removed from the vault."), "btn small ghost"));
+    return el(
+      "li",
+      { class: pick ? "item suggestion" : "item" },
+      el(
+        "div",
+        { class: "item-body" },
+        pick ? el("span", { class: "kicker", text: "Today's read" }) : null,
+        el("span", { class: "title", text: e.title }),
+        pick ? el("span", { class: "notes full", text: pick.summary }) : e.notes ? el("span", { class: "notes", text: e.notes }) : null,
+        meta,
+        pick && pick.why ? el("span", { class: "why", text: pick.why }) : null,
+      ),
+      el("div", { class: "actions" }, ...actions),
+    );
+  }
+
+  async function picksSection() {
+    const { picks } = await api("GET", "/vault");
+    const open = picks.filter((p) => p.entry.status !== "done");
+    if (!open.length) return null;
+    return el("div", { class: "section" }, el("h2", { text: "Today's reads" }), el("ul", { class: "items" }, ...open.map((p) => entryRow(p.entry, p))));
+  }
+
+  function saveLinkForm() {
+    const form = el("form", { class: "capture" });
+    const url = el("input", { name: "url", type: "url", placeholder: "Paste a link to read later", "aria-label": "Link" });
+    const title = el("input", { class: "short", placeholder: "Title (optional)", maxlength: 300, "aria-label": "Title" });
+    form.append(url, el("div", { class: "capture-row" }, title, el("button", { type: "submit", class: "btn primary", text: "Save" })));
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        await api("POST", "/vault", { url: url.value, title: title.value });
+        toast("Saved to the vault.");
+        await render();
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+    return form;
+  }
+
+  async function renderVault() {
+    const { picks, entries } = await api("GET", "/vault");
+    const pickedIds = new Set(picks.map((p) => p.entry.id));
+    const open = picks.filter((p) => p.entry.status !== "done");
+    const rest = entries.filter((e) => !pickedIds.has(e.id));
+    const parts = [
+      el("p", { class: "lead", text: "Things to read later: links from the Save to Vault Shortcut or saved here, and mail sorted as vault. Two get picked each morning, with a summary." }),
+      saveLinkForm(),
+    ];
+    if (open.length) parts.push(el("div", { class: "section" }, el("h2", { text: "Today's reads" }), el("ul", { class: "items" }, ...open.map((p) => entryRow(p.entry, p)))));
+    const wrap = el("div", { class: "section" }, el("h2", { text: `In the vault (${rest.length})` }));
+    wrap.append(rest.length ? el("ul", { class: "items" }, ...rest.map((e) => entryRow(e))) : el("p", { class: "muted", text: "Nothing saved. Share a link to the Save to Vault Shortcut, or paste one above." }));
+    parts.push(wrap);
+    list.replaceChildren(...parts);
+  }
+
   async function render() {
     for (const a of board.querySelectorAll(".views a")) a.classList.toggle("on", a.dataset.view === view);
     try {
@@ -630,6 +713,8 @@
         await renderMail();
       } else if (view === "dates") {
         await renderDates();
+      } else if (view === "vault") {
+        await renderVault();
       } else if (view === "session") {
         const [s, suggested] = await Promise.all([api("GET", "/session"), suggestionsSection()]);
         list.replaceChildren(
@@ -656,7 +741,7 @@
           tools.append(el("button", { type: "button", class: "btn ghost small", text: "Merge duplicates", onclick: startMerge }));
         }
         const title = { today: "Today", inbox: "Inbox", later: "Later", done: "Done in the last 30 days" }[view];
-        const suggested = view === "inbox" ? await suggestionsSection() : null;
+        const suggested = view === "inbox" ? await suggestionsSection() : view === "today" ? await picksSection() : null;
         list.replaceChildren(tools, suggested || "", section(title, data.items, view, EMPTY[view]));
         return;
       }
@@ -670,7 +755,7 @@
   function fromHash() {
     const wanted = location.hash.slice(1);
     view = VIEWS.includes(wanted) ? wanted : "today";
-    if (picking && ["session", "review", "done", "mail", "dates"].includes(view)) stopMerge();
+    if (picking && ["session", "review", "done", "mail", "dates", "vault"].includes(view)) stopMerge();
     render();
   }
   window.addEventListener("hashchange", fromHash);
@@ -692,7 +777,7 @@
     }
   });
 
-  // Hotkeys, like Plate: n to capture, 1-8 to switch views, Escape to back out.
+  // Hotkeys, like Plate: n to capture, 1-9 to switch views, Escape to back out.
   document.addEventListener("keydown", (e) => {
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
     if (e.key === "Escape") {
@@ -705,7 +790,7 @@
       e.preventDefault();
       document.getElementById("capture-title").focus();
     }
-    if (/^[1-8]$/.test(e.key) && VIEWS[Number(e.key) - 1]) location.hash = VIEWS[Number(e.key) - 1];
+    if (/^[1-9]$/.test(e.key) && VIEWS[Number(e.key) - 1]) location.hash = VIEWS[Number(e.key) - 1];
   });
 
   fromHash();

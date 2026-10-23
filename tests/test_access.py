@@ -294,6 +294,20 @@ def test_morning_reads_dates_and_files_ideas_but_changes_no_date():
         assert client.request(method, path, json={"title": "x", "month": 1, "day": 1}, headers=MORNING_H()).status_code == 403, path
 
 
+def test_only_the_morning_routine_picks_reads():
+    assert client.get("/api/plates/kev/vault", headers=MORNING_H()).status_code == 200
+    # Through Access to the route (a 404 for the unknown item, not a 403).
+    assert client.post("/api/plates/kev/vault/picks", json={"item_id": 999999, "summary": "x"}, headers=MORNING_H()).status_code == 404
+    for headers in (AGENT_H, SWEEP_H, CAPTURE_H):
+        assert client.post("/api/plates/kev/vault/picks", json={"item_id": 1, "summary": "x"}, headers=headers()).status_code == 403
+    for headers in (MORNING_H, AGENT_H, SWEEP_H):
+        assert client.post("/api/table/vault", json={"url": "https://example.com"}, headers=headers()).status_code == 403
+        assert client.get("/api/plates/elizabeth/vault", headers=headers()).status_code == 403
+        assert client.post("/api/plates/elizabeth/vault/picks", json={"item_id": 1, "summary": "x"}, headers=headers()).status_code == 403
+    assert client.get("/api/plates/elizabeth/vault", headers=KEV_H()).status_code == 403
+    assert client.post("/api/plates/elizabeth/vault", json={"url": "https://example.com"}, headers=BETH_H()).status_code == 201
+
+
 def test_agents_and_the_sweep_change_no_dates_and_never_see_beths():
     for headers in (AGENT_H, SWEEP_H):
         assert client.get("/api/table/dates", headers=headers()).status_code == 200

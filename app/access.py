@@ -24,7 +24,8 @@ identity. Anything else gets a 403 before a route handler runs.
   Reads the Table and Kev's Plate, sorts synced mail, files suggestions and logs its runs.
 
 - morning: the morning routine's service token (MORNING_SERVICE_TOKEN_ID, DESIGN.md §11).
-  Reads the Table and Kev's Plate, files suggestions (date-options) and logs its runs.
+  Reads the Table and Kev's Plate, files suggestions (date-options), picks the day's vault
+  reads (vault-picks) and logs its runs.
 
 Every routine has its own token and its own row in SERVICE_SCOPES, so the audit checks one
 table. Approving anything an agent suggested is a person's job: such routes also depend on
@@ -209,6 +210,7 @@ _AGENT_SPACES = r"/api/(?:table|plates/kev)"
 _SUGGEST = re.compile(_AGENT_SPACES + r"/suggestions")
 _SORT_MAIL = re.compile(_AGENT_SPACES + r"/mail/\d+")
 _RUN = re.compile(r"/api/agent-runs(?:/\d+)?")
+_PICK = re.compile(_AGENT_SPACES + r"/vault/picks")
 
 SERVICE_SCOPES: dict[str, Scope] = {
     # Cloud threads working for Kev: read the Table and Kev's Plate, never Beth's. They
@@ -216,8 +218,9 @@ SERVICE_SCOPES: dict[str, Scope] = {
     AGENT: Scope(blocked_prefixes=plate_prefixes(ELIZABETH), write_patterns=(_SUGGEST,)),
     # The sweep routine (DESIGN.md §10): sorts mail, files suggestions, logs its runs.
     SWEEP: Scope(blocked_prefixes=plate_prefixes(ELIZABETH), write_patterns=(_SUGGEST, _SORT_MAIL, _RUN)),
-    # The morning routine (DESIGN.md §11): date-options files ideas as suggestions.
-    MORNING: Scope(blocked_prefixes=plate_prefixes(ELIZABETH), write_patterns=(_SUGGEST, _RUN)),
+    # The morning routine (DESIGN.md §11, §12): date-options files ideas as suggestions;
+    # vault-picks files the day's two reads.
+    MORNING: Scope(blocked_prefixes=plate_prefixes(ELIZABETH), write_patterns=(_SUGGEST, _RUN, _PICK)),
     # The iOS Shortcut: files one capture, reads nothing.
     CAPTURE: Scope(reads=False, write_exact=frozenset({"/api/capture"})),
 }

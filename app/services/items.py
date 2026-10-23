@@ -6,6 +6,8 @@ Views are computed from status and dates against today_local():
 - inbox: captured, not yet triaged.
 - later: deferred to a future date, or to no date at all.
 - done: closed in the last 30 days.
+- vault: open read-later links (kind link). They stay out of every other view and count,
+  so the vault never crowds the plate; done means read.
 
 The daily session is today's plate to keep or defer, what's due within 7 days, and the
 inbox. The weekly review is everything deferred, everything overdue, inbox items older
@@ -66,6 +68,7 @@ def create(
     today: bool = False,
     source_kind: str = "manual",
     source_ref: str = "",
+    kind: str = "task",
 ) -> Item:
     title = title.strip()
     if not title:
@@ -76,7 +79,8 @@ def create(
         title=title[:300],
         notes=notes.strip(),
         due_on=due_on,
-        status="today" if today else "inbox",
+        kind=kind,
+        status="today" if today and kind != "link" else "inbox",
         created_by=actor(identity),
     )
     session.add(item)
@@ -181,7 +185,9 @@ def merge(session: Session, identity: Identity, space: str, keep_id: int, merge_
 
 
 def _open_items(session: Session, space: str) -> list[Item]:
-    return list(session.exec(select(Item).where(Item.space == space, col(Item.status).in_(OPEN))))
+    # Vault links have their own view and never count toward the plate.
+    stmt = select(Item).where(Item.space == space, col(Item.status).in_(OPEN), Item.kind != "link")
+    return list(session.exec(stmt))
 
 
 def _is_today(item: Item, today: date) -> bool:
@@ -201,6 +207,9 @@ def view(session: Session, space: str, name: str) -> list[Item]:
         since = utcnow() - DONE_WINDOW
         stmt = select(Item).where(Item.space == space, Item.status == "done", col(Item.done_at) >= since)
         return sorted(session.exec(stmt), key=lambda i: i.done_at, reverse=True)
+    if name == "vault":
+        stmt = select(Item).where(Item.space == space, col(Item.status).in_(OPEN), Item.kind == "link")
+        return sorted(session.exec(stmt), key=lambda i: i.created_at, reverse=True)
     items = _open_items(session, space)
     if name == "today":
         return _by_due([i for i in items if _is_today(i, today)])

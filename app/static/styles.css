@@ -91,7 +91,7 @@ h1 { margin: 0; font-size: 28px; }
   padding: 12px;
   margin-bottom: 16px;
 }
-.capture input[name="title"] {
+.capture input[name="title"], .capture input[name="url"] {
   width: 100%;
   font: inherit;
   font-size: 17px;
@@ -242,3 +242,4 @@ details summary { cursor: pointer; }
 .capture input.short { flex: 1 1 160px; font: inherit; font-size: 15px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
 input.num { width: 6em; }
 .presets { gap: 8px; }
+a.btn { text-decoration: none; display: inline-flex; align-items: center; }

@@ -284,3 +284,24 @@ class DateAlert(SQLModel, table=True):
     stage: str
     item_id: Optional[int] = Field(default=None, foreign_key="item.id")
     sent_at: datetime = Field(default_factory=utcnow)
+
+
+# --- the vault (milestone 6, DESIGN.md §12) ------------------------------------------------
+
+
+class VaultPick(SQLModel, table=True):
+    """One of the day's two read-later picks: a vault item (kind link) the morning
+    routine chose for today, with a short summary in its own words."""
+
+    __tablename__ = "vault_pick"
+    __table_args__ = (UniqueConstraint("space", "on", "item_id"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    space: str = Field(index=True)
+    on: date = Field(index=True)  # the local day it's picked for
+    item_id: int = Field(foreign_key="item.id", index=True)
+    summary: str = ""  # what it says, in a few sentences (untrusted source, agent's words)
+    why: str = ""  # why today
+    created_by: str = ""
+    run_id: Optional[int] = Field(default=None, foreign_key="agent_run.id")
+    created_at: datetime = Field(default_factory=utcnow)

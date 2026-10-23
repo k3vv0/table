@@ -136,6 +136,17 @@ goes in front before the hostname exists, so the app is never reachable without 
    `table-morning` token. Then a routine in that environment at 7am Eastern whose prompt is
    `routines/morning.md`, with the same "cd ~/table" preamble as the sweep.
 
+## Vault (milestone 6)
+
+1. **Deploy.** `deploy.sh` runs `scripts/migrate_vault_backfill.py`, which gives mail the
+   sweep already sorted as vault its entries in the Vault view.
+2. **"Save to Vault" Shortcut.** Duplicate "Send to Plate" and add `vault` = true
+   (Boolean) to its JSON body; `to` = `table` saves to the Table's vault instead of your
+   Plate's. Beth does the same on her phone.
+3. **Morning routine.** Nothing to change: it reads `routines/morning.md` from the repo,
+   which now runs `vault-picks` after `date-options`. It needs open web access to read the
+   links it summarises.
+
 ## Deploying
 
 `bash scripts/deploy.sh` from the repo root (Git Bash on Windows is fine). It uses the
