@@ -283,11 +283,15 @@ def sync_all(session: Session, client_for=GmailClient) -> dict:
             report[account.address] = {"added": added, "archived": archived}
         except Exception as exc:  # noqa: BLE001  (record it and move on to the next account)
             session.rollback()
+            # Gmail's reason ("[AUTHENTICATIONFAILED] Invalid credentials", "IMAP is
+            # disabled") is what tells Kev what to fix. It never holds the password, but
+            # mask it anyway in case a library ever echoes its input.
+            reason = f"{type(exc).__name__}: {str(exc)[:200]}".replace(account.password, "***")
             state = _state(session, f"mail:{account.address}")
-            state.last_error, state.updated_at = f"{type(exc).__name__}: {str(exc)[:200]}", utcnow()
+            state.last_error, state.updated_at = reason, utcnow()
             session.add(state)
             session.commit()
-            log.warning("mail sync failed for %s: %s", account.address, type(exc).__name__)
-            report[account.address] = {"error": type(exc).__name__}
+            log.warning("mail sync failed for %s: %s", account.address, reason)
+            report[account.address] = {"error": reason}
     report["excerpts_forgotten"] = forget_old_excerpts(session, settings.mail_keep_days)
     return report
