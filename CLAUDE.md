@@ -33,7 +33,7 @@ DESIGN.md is the spec; §2 is the milestone plan.
 Every agent job is a skill in `.claude/skills/<name>/SKILL.md` (DESIGN.md §7). Scheduled
 routines check out this repo and their prompt names the skills to follow, so changing an
 agent's behaviour is a reviewed PR. Routine prompts are in `routines/` (the sweep:
-`routines/sweep.md`, running `email-sort`, `commitment-capture` and `watch-check`; the
+`routines/sweep.md`, running `email-sort`, `commitment-capture`, `watch-check` and `date-capture`; the
 morning routine: `routines/morning.md`, running `date-options`). To set up someone's people
 and dates, follow `.claude/skills/dates-interview`.
 
