@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Table{% endblock %}
+{% block content %}
+<h1>The table</h1>
+<p class="date">{{ today.strftime("%A, %B ") ~ today.day }}</p>
+<section class="card empty">
+  <h2>Nothing on the table yet</h2>
+  <p>Shared commitments, trips, chores and family dates will land here. Items are shared
+  unless someone marks one as Kev's or Beth's.</p>
+</section>
+{% endblock %}

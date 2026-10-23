@@ -1,0 +1,24 @@
+# The app itself (DESIGN.md §6). Installed by hand once: see README.md "First deploy".
+# Listens on loopback only; the Cloudflare Tunnel's dash.sangmuah.net hostname is the only
+# way in, and Access sits in front of it.
+[Unit]
+Description=Table (dash.sangmuah.net)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=table
+Group=table
+WorkingDirectory=/opt/table
+EnvironmentFile=/opt/table/.env
+ExecStart=/opt/table/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010 --proxy-headers
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/table/data
+
+[Install]
+WantedBy=multi-user.target
