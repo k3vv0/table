@@ -88,7 +88,10 @@ def create(
     return item
 
 
-EDITABLE = ("title", "notes", "due_on", "owner")
+EDITABLE = ("title", "notes", "due_on", "owner", "kind")
+# By hand an item is a task, or a watch waiting on something (watch-check reads those).
+# Dates and vault links get their kinds from their own milestones.
+HAND_KINDS = ("task", "watch")
 
 
 def update(session: Session, identity: Identity, item: Item, changes: dict) -> Item:
@@ -105,6 +108,10 @@ def update(session: Session, identity: Identity, item: Item, changes: dict) -> I
         item.due_on = changes["due_on"]
     if "owner" in changes:
         item.owner = _check_owner(item.space, changes["owner"])
+    if "kind" in changes:
+        if changes["kind"] not in HAND_KINDS or item.kind not in HAND_KINDS:
+            raise HTTPException(status_code=422, detail="Only a task can become a watch, and back.")
+        item.kind = changes["kind"]
     item.updated_at = utcnow()
     record(session, identity, "item.edit", f"item:{item.id}", ", ".join(sorted(changes)))
     session.commit()

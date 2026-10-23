@@ -1,0 +1,20 @@
+# Mail and calendar sync (scripts/sync.py, DESIGN.md §10). Installed by
+# hand once: see README.md "Mail and calendar".
+[Unit]
+Description=Table mail and calendar sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+TimeoutStartSec=600
+User=table
+Group=table
+WorkingDirectory=/opt/table
+EnvironmentFile=/opt/table/.env
+ExecStart=/opt/table/.venv/bin/python /opt/table/scripts/sync.py
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/table/data

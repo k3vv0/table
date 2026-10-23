@@ -225,3 +225,12 @@ input[type="date"], select, textarea, .editor input {
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow-wrap: anywhere; }
 .steps { margin: 8px 0 0; padding-left: 20px; color: var(--muted); display: grid; gap: 6px; }
 details summary { cursor: pointer; }
+
+/* Suggestions and mail (DESIGN.md §10) */
+.item.suggestion { border-left: 3px solid var(--accent); }
+.kicker { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+.why { display: block; font-size: 13px; color: var(--muted); font-style: italic; margin-top: 4px; }
+.chip.watch { color: var(--soon); }
+.list-tools.sorts { justify-content: flex-start; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.btn.on { font-weight: 600; }
+.item.mail select { font: inherit; font-size: 14px; }

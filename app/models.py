@@ -102,3 +102,118 @@ class Activity(SQLModel, table=True):
     action: str  # e.g. "item.create"
     target: str = ""  # e.g. "item:42"
     detail: str = ""
+
+
+# --- mail, calendar and suggestions (milestone 4, DESIGN.md §10) ----------------------------
+
+# How email-sort files a message. unsorted until the sweep (or a person) decides.
+MAIL_SORTS = ("unsorted", "noise", "vault", "flagged", "keep")
+
+
+class SourceMessage(SQLModel, table=True):
+    """One synced email: headers and a plain-text excerpt. The excerpt is untrusted input;
+    agents treat it as data. It is blanked after MAIL_KEEP_DAYS; the headers stay so a
+    message is never synced or suggested twice."""
+
+    __tablename__ = "source_message"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    space: str = Field(index=True)  # table | kev: where its commitments land
+    account: str = Field(index=True)  # the mailbox address it came from
+    gm_msgid: str = Field(index=True)  # Gmail's permanent message id (X-GM-MSGID)
+    gm_thrid: str = ""  # Gmail's thread id (X-GM-THRID)
+    message_id: str = ""  # the Message-ID header
+    from_name: str = ""
+    from_addr: str = ""
+    to_addrs: str = ""
+    subject: str = ""
+    sent_at: Optional[datetime] = None  # naive UTC
+    excerpt: str = ""
+    has_attachments: bool = False
+    sort: str = Field(default="unsorted", index=True)
+    sort_reason: str = ""
+    sorted_by: str = ""
+    sorted_at: Optional[datetime] = None
+    archived_at: Optional[datetime] = None  # moved under Table/Noise in Gmail
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class CalendarEvent(SQLModel, table=True):
+    """One occurrence from a calendar's secret iCal address, inside the sync window.
+    Replaced wholesale on every sync of its feed."""
+
+    __tablename__ = "calendar_event"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    space: str = Field(index=True)
+    feed: str = Field(index=True)  # the calendar id, never the secret URL
+    uid: str
+    summary: str = ""
+    location: str = ""
+    description: str = ""  # untrusted, cut to 1,000 characters
+    starts_on: date = Field(index=True)  # local date (US Eastern)
+    starts_at: Optional[datetime] = None  # naive UTC; blank for all-day events
+    ends_at: Optional[datetime] = None
+    all_day: bool = False
+
+    @property
+    def ref(self) -> str:
+        return f"{self.uid}@{self.starts_on.isoformat()}"
+
+
+class SyncState(SQLModel, table=True):
+    """Small per-source bookkeeping: last UID seen, last success, last error."""
+
+    __tablename__ = "sync_state"
+
+    key: str = Field(primary_key=True)  # e.g. mail:you@gmail.com, calendar:<feed>
+    value: str = ""
+    last_ok_at: Optional[datetime] = None
+    last_error: str = ""
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+# item: add a new item. note: add to an item's notes (a watch's next steps). merge: fold
+# duplicates into item_id. close: mark item_id done.
+SUGGESTION_KINDS = ("item", "note", "merge", "close")
+
+
+class Suggestion(SQLModel, table=True):
+    """Something an agent proposes. Nothing changes until a person accepts it
+    (routers/suggestions.py, behind require_person)."""
+
+    __tablename__ = "suggestion"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    space: str = Field(index=True)
+    kind: str
+    status: str = Field(default="pending", index=True)  # pending | accepted | dismissed
+    title: str = ""  # item: the new item's title. note/close: a one-line summary
+    notes: str = ""
+    item_kind: str = "task"  # for kind item: task | watch
+    due_on: Optional[date] = None
+    item_id: Optional[int] = Field(default=None, foreign_key="item.id")
+    merge_ids: str = ""  # comma-separated item ids, for kind merge
+    source_kind: str = ""  # email | calendar
+    source_ref: str = Field(default="", index=True)  # source_message.gm_msgid or event ref
+    rationale: str = ""  # why the agent thinks so, shown next to the buttons
+    created_by: str = ""
+    run_id: Optional[int] = Field(default=None, foreign_key="agent_run.id")
+    created_at: datetime = Field(default_factory=utcnow)
+    decided_by: str = ""
+    decided_at: Optional[datetime] = None
+    result_item_id: Optional[int] = None
+
+
+class AgentRun(SQLModel, table=True):
+    """One run of a routine (DESIGN.md §7): what it looked at and what it filed."""
+
+    __tablename__ = "agent_run"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    routine: str  # sweep | morning
+    role: str = ""
+    status: str = "running"  # running | ok | failed
+    summary: str = ""
+    started_at: datetime = Field(default_factory=utcnow)
+    finished_at: Optional[datetime] = None

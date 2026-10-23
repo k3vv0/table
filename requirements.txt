@@ -10,3 +10,6 @@ PyJWT[crypto]==2.15.0  # verifies Cloudflare Access tokens (app/access.py)
 cryptography==50.0.2
 tzdata==2026.4  # zoneinfo (app/localtime.py) needs this on Windows
 pywebpush==2.5.0  # Web Push to the home-screen app (app/services/push.py)
+requests==2.34.2  # calendar feeds (app/services/calendar.py); pywebpush needs it too
+icalendar==7.3.0  # parses the secret iCal feeds
+recurring-ical-events==3.8.2  # expands repeating events inside the sync window
