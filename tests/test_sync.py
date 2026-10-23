@@ -174,14 +174,14 @@ def test_one_failing_mailbox_does_not_stop_the_others(monkeypatch):
 
     def client_for(account):
         if account.space == "kev":
-            raise OSError("login refused")
+            raise OSError(f"login refused for {account.password}")
         return FakeGmail({1: ("z", message("Hi"))})
 
     with Session(engine) as session:
         report = mail.sync_all(session, client_for=client_for)
         state = session.get(SyncState, "mail:kev@example.com")
-    assert report["kev@example.com"] == {"error": "OSError"} and report["us@example.com"]["added"] == 1
-    assert "login refused" in state.last_error and "pw1" not in state.last_error
+    assert report["kev@example.com"] == {"error": "OSError: login refused for ***"} and report["us@example.com"]["added"] == 1
+    assert state.last_error == "OSError: login refused for ***"
 
 
 def test_settings_parse_accounts_and_never_echo_a_password():
