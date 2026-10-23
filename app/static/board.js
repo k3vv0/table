@@ -8,7 +8,7 @@
   const TODAY = board.dataset.today; // YYYY-MM-DD, US Eastern, from the server
   const SYNCED = board.dataset.synced === "1"; // mail and calendar sync into this space
   const MONEYHUB = board.dataset.moneyhub; // where a money-hub goal link points
-  const VIEWS = ["today", "inbox", "later", "done", "session", "review", "dates", "vault", ...(SYNCED ? ["mail"] : [])];
+  const VIEWS = ["today", "inbox", "later", "done", "session", "review", "dates", "vault", ...(SPACE === "table" ? ["trips"] : []), ...(SYNCED ? ["mail"] : [])];
   const list = document.getElementById("list");
   const statusEl = document.getElementById("status");
   const mergeBar = document.getElementById("merge-bar");
@@ -16,6 +16,7 @@
   const mergeCount = document.getElementById("merge-count");
 
   let view = "today";
+  let tripId = null; // the trip open under Trips (#trip-<id>)
   let picking = false;
   let picked = [];
 
@@ -304,7 +305,7 @@
     const decide = async (action, body) => {
       try {
         await api("POST", `/suggestions/${s.id}/${action}`, body);
-        toast(action === "dismiss" ? "Dismissed." : s.kind === "date" ? "Date added." : body?.today ? "Accepted, on today's plate." : "Accepted.");
+        toast(action === "dismiss" ? "Dismissed." : s.kind === "date" ? "Date added." : s.kind === "trip" ? "Trip added. It's under Trips." : body?.today ? "Accepted, on today's plate." : "Accepted.");
         await render();
       } catch (err) {
         toast(err.message);
@@ -317,6 +318,8 @@
       close: `Mark “${s.item?.title || ""}” done`,
       date: "Add a date",
       goal: `Link “${s.item?.title || ""}” to a money-hub goal`,
+      trip: "New trip",
+      module: `Option for “${s.payload.trip_title || "a trip"}”`,
     }[s.kind];
     const meta = el("div", { class: "meta" });
     if (s.due_on) meta.append(el("span", { class: "chip", text: `Due ${short(s.due_on)}` }));
@@ -329,6 +332,10 @@
       meta.append(el("span", { class: "chip weight", text: s.payload.weight === "planned" ? "Planned: 30 days ahead" : "Light: the day before" }));
     }
     if (s.kind === "goal") meta.append(el("span", { class: "chip", text: `money-hub goal #${s.payload.moneyhub_goal_id}` }));
+    if (s.kind === "trip") {
+      meta.append(el("span", { class: "chip", text: s.payload.starts_on && s.payload.ends_on ? `${short(s.payload.starts_on)} to ${short(s.payload.ends_on)}` : s.payload.window || "Dates not set" }));
+      if (s.payload.places) meta.append(el("span", { class: "chip", text: s.payload.places }));
+    }
     const actions = [btn("Accept", () => decide("accept", {}), "btn small primary")];
     if (s.kind === "item") actions.push(btn("Accept for today", () => decide("accept", { today: true })));
     actions.push(btn("Dismiss", () => decide("dismiss"), "btn small ghost"));
@@ -350,7 +357,8 @@
 
   async function suggestionsSection(only) {
     let { suggestions } = await api("GET", "/suggestions");
-    if (only) suggestions = suggestions.filter((s) => s.kind === only);
+    // Options on a trip are shown on the trip itself, next to the leg they're for.
+    suggestions = suggestions.filter((s) => (only ? s.kind === only : s.kind !== "module"));
     if (!suggestions.length) return null;
     return el(
       "div",
@@ -706,10 +714,357 @@
     list.replaceChildren(...parts);
   }
 
+  // --- trips (DESIGN.md §13) -----------------------------------------------------------------
+  // Table only. A trip is made of modules: flights, stays, rides and plans. A flight with no
+  // flight number is a leg still to fill; the morning routine suggests standby candidates
+  // and a paid backup for it. Agent text (titles, notes) only goes in through textContent.
+
+  const STATUS_TEXT = { idea: "Idea", planning: "Planning", set: "Set", away: "Away", home: "Home", reviewed: "Reviewed" };
+  const KIND_TEXT = { flight: "Flight", stay: "Stay", ground: "Ride", plan: "Plan" };
+  const STATE_TEXT = { option: "Option", chosen: "Chosen", booked: "Booked", dropped: "Dropped" };
+  const PAYER_TEXT = { "": "", standby: "Standby", cash: "Paid", points: "Points", work: "Work pays", family: "Free stay", scholarship: "Scholarship" };
+  const PEOPLE_TEXT = { kev: "Kev", elizabeth: "Beth" };
+
+  const tripDays = (t) => (t.starts_on && t.ends_on ? `${short(t.starts_on)} to ${short(t.ends_on)}` : t.window || "Dates not set");
+  const hhmm = (t) => {
+    if (!t) return "";
+    const [h, m] = t.split(":").map(Number);
+    return `${h % 12 || 12}${m ? `:${String(m).padStart(2, "0")}` : ""}${h < 12 ? "am" : "pm"}`;
+  };
+
+  async function tripCall(method, path, body, done) {
+    try {
+      await api(method, path, body);
+      if (done) toast(done);
+      await render();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function travelerPick(selected, all = ["kev", "elizabeth"]) {
+    const pick = el("select", { "aria-label": "Who" });
+    if (all.length > 1) pick.append(el("option", { value: all.join(","), text: "Both" }));
+    for (const t of all) pick.append(el("option", { value: t, text: PEOPLE_TEXT[t] }));
+    pick.value = selected && selected.length && selected.length < all.length ? selected.join(",") : all.join(",");
+    return pick;
+  }
+
+  function addTripForm() {
+    const form = el("form", { class: "capture" });
+    const title = el("input", { name: "title", placeholder: "Add a trip: Thanksgiving in San Marcos, Chicago work trip…", maxlength: 200, required: true, "aria-label": "Trip" });
+    const window_ = el("input", { class: "short", placeholder: "When, roughly (week before Thanksgiving)", maxlength: 300, "aria-label": "Window" });
+    const start = el("input", { type: "date", "aria-label": "First day" });
+    const end = el("input", { type: "date", "aria-label": "Last day" });
+    const who = travelerPick();
+    form.append(
+      title,
+      el("div", { class: "capture-row" }, window_, el("label", { class: "due" }, "From ", start), el("label", { class: "due" }, "to ", end), who, el("button", { type: "submit", class: "btn primary", text: "Add" })),
+    );
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const trip = await api("POST", "/trips", { title: title.value, window: window_.value, starts_on: start.value || null, ends_on: end.value || null, travelers: who.value.split(",") });
+        toast("Trip added.");
+        location.hash = `trip-${trip.id}`;
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+    return form;
+  }
+
+  function placeRow(p) {
+    const li = el("li", { class: "item" });
+    const edit = () => {
+      const form = el("form", { class: "editor" });
+      const name = el("input", { name: "title", value: p.name, maxlength: 120, required: true, "aria-label": "Name" });
+      const airports = el("input", { value: p.airports, placeholder: "Airports, first choice first: JFK LGA", "aria-label": "Airports" });
+      const bags = el("input", { value: p.bags_airport, placeholder: "With checked bags, if different: LGA", maxlength: 3, "aria-label": "Bags airport" });
+      const hosts = el("input", { value: p.hosts, placeholder: "Who you stay with", "aria-label": "Hosts" });
+      const ride = el("input", { value: p.ride, placeholder: "The usual ride: Uber from AUS, about 40 minutes", "aria-label": "Ride" });
+      const cost = el("input", { type: "number", min: 0, value: p.ride_cost ?? "", class: "num", "aria-label": "Ride cost" });
+      const home = el("input", { type: "checkbox", checked: p.home });
+      const notes = el("textarea", { rows: 2, placeholder: "Notes", "aria-label": "Notes" });
+      notes.value = p.notes;
+      form.append(name, airports, bags, hosts, ride, el("label", { class: "due" }, "Ride, each way $ ", cost), el("label", { class: "chk" }, home, " Home: trips start here"), notes,
+        el("div", { class: "editor-row" }, el("button", { type: "submit", class: "btn primary", text: "Save" }), el("button", { type: "button", class: "btn ghost", text: "Cancel", onclick: () => render() })));
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        tripCall("PATCH", `/places/${p.id}`, { name: name.value, airports: airports.value, bags_airport: bags.value, hosts: hosts.value, ride: ride.value, ride_cost: cost.value ? Number(cost.value) : null, home: home.checked, notes: notes.value }, "Saved.");
+      });
+      li.replaceChildren(form);
+    };
+    const meta = el("div", { class: "meta" });
+    if (p.home) meta.append(el("span", { class: "chip weight", text: "Home" }));
+    if (p.airports) meta.append(el("span", { class: "chip", text: p.airports + (p.bags_airport ? ` · bags: ${p.bags_airport}` : "") }));
+    if (p.ride_cost !== null) meta.append(el("span", { class: "chip", text: `Ride about $${p.ride_cost}` }));
+    li.append(el("button", { type: "button", class: "item-body", onclick: edit }, el("span", { class: "title", text: p.name }), p.hosts || p.ride ? el("span", { class: "notes", text: [p.hosts && `Hosts: ${p.hosts}`, p.ride].filter(Boolean).join(" · ") }) : null, meta));
+    return li;
+  }
+
+  function addPlaceForm() {
+    const form = el("form", { class: "capture" });
+    const name = el("input", { name: "title", placeholder: "Add a place: Home, San Marcos, Santa Clarita…", maxlength: 120, required: true, "aria-label": "Place" });
+    const airports = el("input", { class: "short", placeholder: "Airports: AUS SAT", "aria-label": "Airports" });
+    form.append(name, el("div", { class: "capture-row" }, airports, el("button", { type: "submit", class: "btn primary", text: "Add" })));
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      tripCall("POST", "/places", { name: name.value, airports: airports.value }, "Place added.");
+    });
+    return form;
+  }
+
+  async function renderTrips() {
+    const [{ trips }, { places }, suggested] = await Promise.all([api("GET", "/trips"), api("GET", "/places"), suggestionsSection("trip")]);
+    const parts = [
+      el("p", { class: "lead", text: "Each trip is built from flights, stays and rides that either of you can add. Standby candidates and a paid backup show up on each flight, and you get reminders to check loads as the day gets close." }),
+      addTripForm(),
+      suggested || "",
+    ];
+    const ul = el("ul", { class: "items" });
+    for (const t of trips) {
+      const meta = el("div", { class: "meta" });
+      meta.append(el("span", { class: t.status === "away" || t.status === "set" ? "chip soon" : "chip", text: STATUS_TEXT[t.status] }));
+      meta.append(el("span", { class: "chip", text: tripDays(t) }));
+      if (t.travelers.length === 1) meta.append(el("span", { class: "chip owner", text: PEOPLE_TEXT[t.travelers[0]] }));
+      if (t.legs.length) meta.append(el("span", { class: "chip", text: `${t.legs.length} flight day${t.legs.length > 1 ? "s" : ""}` }));
+      ul.append(el("li", { class: "item" }, el("a", { class: "item-body", href: `#trip-${t.id}` }, el("span", { class: "title", text: t.title }), t.places ? el("span", { class: "notes", text: t.places }) : null, meta)));
+    }
+    parts.push(el("div", { class: "section" }, el("h2", { text: "Trips" }), trips.length ? ul : el("p", { class: "muted", text: "No trips yet. Add one above." })));
+    parts.push(el("div", { class: "section" }, el("h2", { text: "Places" }), addPlaceForm(), places.length ? el("ul", { class: "items" }, ...places.map(placeRow)) : el("p", { class: "muted", text: "Add Home first (JFK LGA, bags: LGA), then the places you go back to." })));
+    list.replaceChildren(...parts);
+  }
+
+  function moduleMeta(m, trip) {
+    const meta = el("div", { class: "meta" });
+    if (m.state) meta.append(el("span", { class: m.state === "booked" ? "chip weight" : m.state === "chosen" ? "chip soon" : "chip", text: STATE_TEXT[m.state] || "Suggested" }));
+    if (m.payer) meta.append(el("span", { class: "chip", text: PAYER_TEXT[m.payer] }));
+    if (m.cost !== null && m.cost !== undefined) meta.append(el("span", { class: "chip", text: `$${m.cost}` }));
+    if (m.points) meta.append(el("span", { class: "chip", text: `${m.points.toLocaleString()} points` }));
+    if (m.kind !== "flight" && m.starts_on) meta.append(el("span", { class: "chip", text: m.ends_on && m.ends_on !== m.starts_on ? `${short(m.starts_on)} to ${short(m.ends_on)}` : short(m.starts_on) }));
+    if (m.travelers && m.travelers.length && m.travelers !== trip.travelers.join(",")) meta.append(el("span", { class: "chip owner", text: m.travelers.split(",").map((t) => PEOPLE_TEXT[t]).join(" and ") }));
+    if (m.confirmation) meta.append(el("span", { class: "chip", text: `Conf. ${m.confirmation}` }));
+    return meta;
+  }
+
+  function flightLine(m) {
+    if (!m.flight) return `${m.from_airports || "?"} → ${m.to_airports || "?"}: leg to fill`;
+    const times = [m.departs && `leaves ${hhmm(m.departs)}`, m.arrives && `lands ${hhmm(m.arrives)}`].filter(Boolean).join(", ");
+    return `${m.flight} ${m.from_airports} → ${m.to_airports}${times ? `, ${times}` : ""}`;
+  }
+
+  function moduleEditor(m, trip, li) {
+    const form = el("form", { class: "editor" });
+    const title = el("input", { name: "title", value: m.title, maxlength: 200, required: true, "aria-label": "Title" });
+    const notes = el("textarea", { rows: 2, placeholder: "Notes", "aria-label": "Notes" });
+    notes.value = m.notes;
+    const cost = el("input", { type: "number", min: 0, value: m.cost ?? "", class: "num", "aria-label": "Cost" });
+    const link = el("input", { value: m.link, placeholder: "https:// link", "aria-label": "Link" });
+    const conf = el("input", { value: m.confirmation || "", placeholder: "Confirmation number", maxlength: 60, "aria-label": "Confirmation" });
+    form.append(title, notes, link, conf, el("label", { class: "due" }, "Cost $ ", cost),
+      el("div", { class: "editor-row" }, el("button", { type: "submit", class: "btn primary", text: "Save" }), el("button", { type: "button", class: "btn ghost", text: "Cancel", onclick: () => render() })));
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      tripCall("PATCH", `/trips/${trip.id}/modules/${m.id}`, { title: title.value, notes: notes.value, link: link.value, confirmation: conf.value, cost: cost.value ? Number(cost.value) : null }, "Saved.");
+    });
+    li.replaceChildren(form);
+  }
+
+  function moduleRow(m, trip) {
+    const btn = (text, fn, cls = "btn small") => el("button", { type: "button", class: cls, text, onclick: fn });
+    const state = (s, word) => () => tripCall("PATCH", `/trips/${trip.id}/modules/${m.id}`, { state: s }, word);
+    const li = el("li", { class: `item${m.state === "dropped" ? " is-done" : ""}` });
+    const actions = [];
+    const flight = m.kind === "flight" && m.flight;
+    const leg = m.kind === "flight" && !m.flight; // a leg to fill: its candidates get chosen, not it
+    if (m.state === "option" && !leg) actions.push(btn(flight ? "Flying this one" : "Choose", state("chosen", "Chosen."), "btn small primary"));
+    if (m.state === "chosen") actions.push(btn(flight ? "Made it" : "Booked", state("booked", flight ? "Made it. No more check reminders for this day." : "Booked.")), btn(flight ? "Didn't make it" : "Drop", state("dropped", "Dropped."), "btn small ghost"));
+    if (m.state === "option") actions.push(btn("Drop", state("dropped", "Dropped."), "btn small ghost"));
+    if (m.state === "dropped" || m.state === "booked") actions.push(btn("Reopen", state("option", "Back to an option."), "btn small ghost"));
+    const href = httpsOnly(m.link);
+    if (href) actions.push(el("a", { class: "btn small", href, target: "_blank", rel: "noopener noreferrer", text: "Open" }));
+    li.append(
+      el("button", { type: "button", class: "item-body", onclick: () => moduleEditor(m, trip, li) },
+        el("span", { class: "kicker", text: KIND_TEXT[m.kind] }),
+        el("span", { class: "title", text: m.kind === "flight" ? flightLine(m) : m.title }),
+        m.notes ? el("span", { class: "notes", text: m.notes }) : null,
+        moduleMeta(m, trip)),
+      el("div", { class: "actions" }, ...actions),
+    );
+    return li;
+  }
+
+  function suggestedRow(s, trip) {
+    const btn = (text, fn, cls = "btn small") => el("button", { type: "button", class: cls, text, onclick: fn });
+    const decide = (action, body, word) => tripCall("POST", `/suggestions/${s.id}/${action}`, body, word);
+    const flight = s.kind === "flight" && s.flight;
+    const actions = [];
+    if (s.module_id) actions.push(btn("Update the option", () => decide("accept", {}, "Updated."), "btn small primary"));
+    else {
+      actions.push(btn(flight ? "Flying this one" : "Choose", () => decide("accept", { state: "chosen" }, "Chosen."), "btn small primary"));
+      actions.push(btn("Keep as an option", () => decide("accept", {}, "Added as an option.")));
+    }
+    const href = httpsOnly(s.link);
+    if (href) actions.push(el("a", { class: "btn small", href, target: "_blank", rel: "noopener noreferrer", text: "Open" }));
+    actions.push(btn("Dismiss", () => decide("dismiss", undefined, "Dismissed."), "btn small ghost"));
+    return el("li", { class: "item suggestion" },
+      el("div", { class: "item-body" },
+        el("span", { class: "kicker", text: s.module_id ? `Refresh: ${KIND_TEXT[s.kind]}` : `Suggested ${KIND_TEXT[s.kind].toLowerCase()}` }),
+        el("span", { class: "title", text: s.kind === "flight" ? flightLine(s) : s.title }),
+        s.notes ? linkified(s.notes, "notes full") : null,
+        moduleMeta({ ...s, state: null }, trip),
+        s.rationale ? el("span", { class: "why", text: s.rationale }) : null),
+      el("div", { class: "actions" }, ...actions));
+  }
+
+  function addModuleForm(trip) {
+    const form = el("form", { class: "capture" });
+    const kind = el("select", { "aria-label": "Kind" }, ...Object.entries(KIND_TEXT).map(([k, v]) => el("option", { value: k, text: v })));
+    const title = el("input", { name: "title", placeholder: "Add to the trip: a flight leg, Beth's apartment, Uber to San Marcos…", maxlength: 200, "aria-label": "Title" });
+    const start = el("input", { type: "date", value: trip.starts_on || "", "aria-label": "Day" });
+    const end = el("input", { type: "date", "aria-label": "Until" });
+    const who = travelerPick(trip.travelers, trip.travelers);
+    const payer = el("select", { "aria-label": "Who pays" }, ...Object.entries(PAYER_TEXT).map(([k, v]) => el("option", { value: k, text: v || "Who pays?" })));
+    const from = el("input", { class: "short", placeholder: "From: JFK LGA", "aria-label": "From airports" });
+    const to = el("input", { class: "short", placeholder: "To: AUS SAT", "aria-label": "To airports" });
+    const flightNo = el("input", { class: "short", placeholder: "Flight (blank = leg to fill)", maxlength: 20, "aria-label": "Flight" });
+    const departs = el("input", { type: "time", "aria-label": "Leaves" });
+    const cost = el("input", { type: "number", min: 0, class: "num", placeholder: "$", "aria-label": "Cost" });
+    const flightRow = el("div", { class: "capture-row" }, from, to, flightNo, el("label", { class: "due" }, "Leaves ", departs));
+    const sync = () => {
+      flightRow.hidden = kind.value !== "flight";
+      end.parentElement.hidden = kind.value !== "stay";
+    };
+    kind.addEventListener("change", sync);
+    form.append(title, el("div", { class: "capture-row" }, kind, el("label", { class: "due" }, "On ", start), el("label", { class: "due" }, "until ", end), who, payer, cost), flightRow,
+      el("div", { class: "capture-row" }, el("button", { type: "submit", class: "btn primary", text: "Add" })));
+    sync();
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const body = { kind: kind.value, title: title.value, starts_on: start.value || null, ends_on: kind.value === "stay" ? end.value || null : null, travelers: who.value.split(","), payer: payer.value, cost: cost.value ? Number(cost.value) : null };
+      if (kind.value === "flight") Object.assign(body, { from_airports: from.value, to_airports: to.value, flight: flightNo.value, departs: departs.value });
+      tripCall("POST", `/trips/${trip.id}/modules`, body, "Added.");
+    });
+    return form;
+  }
+
+  function tripHeader(trip) {
+    const wrap = el("div", { class: "section" });
+    const show = () => {
+      const meta = el("div", { class: "meta" });
+      meta.append(el("span", { class: "chip soon", text: STATUS_TEXT[trip.status] }), el("span", { class: "chip", text: tripDays(trip) }));
+      meta.append(el("span", { class: "chip owner", text: trip.travelers.map((t) => PEOPLE_TEXT[t]).join(" and ") }));
+      if (trip.moneyhub_goal_id) meta.append(el("a", { class: "chip", href: goalUrl(), target: "_blank", rel: "noopener", text: `money-hub goal #${trip.moneyhub_goal_id}` }));
+      const copy = el("button", { type: "button", class: "btn small", text: "Copy text for family", onclick: copySummary });
+      wrap.replaceChildren(
+        el("p", {}, el("a", { href: "#trips", text: "← All trips" })),
+        el("div", { class: "item" }, el("button", { type: "button", class: "item-body", onclick: edit }, el("span", { class: "title", text: trip.title }), trip.places ? el("span", { class: "kicker", text: trip.places }) : null, trip.notes ? el("span", { class: "notes full", text: trip.notes }) : null, meta), el("div", { class: "actions" }, copy)),
+      );
+    };
+    const copySummary = async () => {
+      try {
+        const res = await fetch(`${API}/trips/${trip.id}/summary`);
+        const text = await res.text();
+        if (!res.ok) throw new Error("Couldn't make the summary.");
+        if (navigator.share) await navigator.share({ text });
+        else {
+          await navigator.clipboard.writeText(text);
+          toast("Copied. Paste it into a text.");
+        }
+      } catch (err) {
+        if (err.name !== "AbortError") toast(err.message);
+      }
+    };
+    const edit = () => {
+      const form = el("form", { class: "editor" });
+      const title = el("input", { name: "title", value: trip.title, maxlength: 200, required: true, "aria-label": "Name" });
+      const status = el("select", { "aria-label": "Status" }, ...Object.entries(STATUS_TEXT).map(([k, v]) => el("option", { value: k, text: v })));
+      status.value = trip.status;
+      const window_ = el("input", { value: trip.window, placeholder: "When, roughly", "aria-label": "Window" });
+      const places = el("input", { value: trip.places, placeholder: "Places, in order: Austin, San Marcos", "aria-label": "Places" });
+      const start = el("input", { type: "date", value: trip.starts_on || "", "aria-label": "First day" });
+      const end = el("input", { type: "date", value: trip.ends_on || "", "aria-label": "Last day" });
+      const who = travelerPick(trip.travelers);
+      const goal = el("input", { type: "number", min: 1, value: trip.moneyhub_goal_id || "", class: "num", "aria-label": "money-hub goal number" });
+      const notes = el("textarea", { rows: 3, placeholder: "Notes", "aria-label": "Notes" });
+      notes.value = trip.notes;
+      form.append(title, window_, places, el("div", { class: "capture-row" }, el("label", { class: "due" }, "Status ", status), el("label", { class: "due" }, "From ", start), el("label", { class: "due" }, "to ", end), who),
+        el("p", { class: "muted", text: "Set: dates are firm, and the prep checklist goes up." }), el("label", { class: "due" }, "money-hub goal # ", goal), notes,
+        el("div", { class: "editor-row" }, el("button", { type: "submit", class: "btn primary", text: "Save" }), el("button", { type: "button", class: "btn ghost", text: "Cancel", onclick: show })));
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        tripCall("PATCH", `/trips/${trip.id}`, { title: title.value, status: status.value, window: window_.value, places: places.value, starts_on: start.value || null, ends_on: end.value || null, travelers: who.value.split(","), notes: notes.value, moneyhub_goal_id: goal.value ? Number(goal.value) : null }, "Saved.");
+      });
+      wrap.replaceChildren(form);
+    };
+    show();
+    return wrap;
+  }
+
+  async function renderTrip(id) {
+    const trip = await api("GET", `/trips/${id}`);
+    const byId = Object.fromEntries(trip.modules.map((m) => [m.id, m]));
+    const parts = [tripHeader(trip)];
+
+    // Flights, a day at a time: the leg, its candidates and backups, and agent options.
+    const legDays = [...new Set([...trip.modules.filter((m) => m.kind === "flight" && m.starts_on).map((m) => m.starts_on), ...trip.suggested.filter((s) => s.kind === "flight" && s.starts_on).map((s) => s.starts_on)])].sort();
+    if (legDays.length) {
+      const wrap = el("div", { class: "section" }, el("h2", { text: "Flights" }));
+      for (const day of legDays) {
+        const mods = trip.modules.filter((m) => m.kind === "flight" && m.starts_on === day).sort((a, b) => (a.departs || "99").localeCompare(b.departs || "99"));
+        const sugg = trip.suggested.filter((s) => s.kind === "flight" && s.starts_on === day).sort((a, b) => (a.departs || "99").localeCompare(b.departs || "99"));
+        const made = mods.some((m) => m.state === "booked");
+        wrap.append(el("h3", { class: "day", text: `${short(day)}${made ? " · made it" : ""}` }), el("ul", { class: "items" }, ...mods.map((m) => moduleRow(m, trip)), ...sugg.map((s) => suggestedRow(s, trip))));
+      }
+      parts.push(wrap);
+    }
+
+    // Stays, rides and plans, with agent options for them.
+    const others = trip.modules.filter((m) => m.kind !== "flight");
+    const otherSugg = trip.suggested.filter((s) => s.kind !== "flight");
+    parts.push(el("div", { class: "section" }, el("h2", { text: "Stays, rides and plans" }),
+      others.length || otherSugg.length ? el("ul", { class: "items" }, ...others.map((m) => moduleRow(m, trip)), ...otherSugg.map((s) => suggestedRow(s, trip))) : el("p", { class: "muted", text: "Nothing yet. Add where you're sleeping and how you get around." })));
+
+    parts.push(addModuleForm(trip));
+
+    // Day by day: what's on, and what's missing.
+    if (trip.strip.length) {
+      const ul = el("ul", { class: "strip" });
+      for (const d of trip.strip) {
+        const on = [...d.stays, ...d.modules].map((mid) => byId[mid]).filter(Boolean);
+        const meta = el("div", { class: "meta" });
+        for (const m of on) meta.append(el("span", { class: m.state === "booked" || m.state === "chosen" ? "chip weight" : "chip", text: m.kind === "flight" ? (m.flight || "Flight to fill") : `${KIND_TEXT[m.kind]}: ${m.title}` }));
+        for (const g of d.gaps) meta.append(el("span", { class: "chip late", text: g }));
+        ul.append(el("li", {}, el("span", { class: "strip-day", text: short(d.on) }), meta));
+      }
+      parts.push(el("div", { class: "section" }, el("h2", { text: "Day by day" }), ul));
+    }
+
+    // The prep checklist: ordinary Table items, due before you leave.
+    if (trip.prep.length) {
+      const ul = el("ul", { class: "items" });
+      for (const i of trip.prep) {
+        const done = i.status === "done";
+        const meta = el("div", { class: "meta" });
+        if (i.due_on) meta.append(el("span", { class: !done && i.due_on <= TODAY ? "chip soon" : "chip", text: `Due ${short(i.due_on)}` }));
+        if (i.owner) meta.append(el("span", { class: "chip owner", text: PEOPLE_TEXT[i.owner] }));
+        ul.append(el("li", { class: `item${done ? " is-done" : ""}` }, el("div", { class: "item-body" }, el("span", { class: "title", text: i.title.replace(` · ${trip.title}`, "") }), meta),
+          el("div", { class: "actions" }, done ? el("button", { type: "button", class: "btn small", text: "Reopen", onclick: () => tripCall("POST", `/items/${i.id}/triage`, { action: "reopen" }, "Reopened.") }) : el("button", { type: "button", class: "btn small done", text: "Done", onclick: () => tripCall("POST", `/items/${i.id}/triage`, { action: "done" }, "Done.") }))));
+      }
+      parts.push(el("div", { class: "section" }, el("h2", { text: "Before you go" }), ul));
+    } else if (!trip.prep_made) {
+      parts.push(el("p", { class: "muted", text: "When the trip is set, a prep checklist goes up here: plants, the key, the sublease, packing." }));
+    }
+    list.replaceChildren(...parts);
+  }
+
   async function render() {
     for (const a of board.querySelectorAll(".views a")) a.classList.toggle("on", a.dataset.view === view);
     try {
-      if (view === "mail") {
+      if (view === "trips") {
+        await (tripId ? renderTrip(tripId) : renderTrips());
+      } else if (view === "mail") {
         await renderMail();
       } else if (view === "dates") {
         await renderDates();
@@ -754,8 +1109,10 @@
 
   function fromHash() {
     const wanted = location.hash.slice(1);
-    view = VIEWS.includes(wanted) ? wanted : "today";
-    if (picking && ["session", "review", "done", "mail", "dates", "vault"].includes(view)) stopMerge();
+    const trip = /^trip-(\d+)$/.exec(wanted);
+    tripId = trip && SPACE === "table" ? Number(trip[1]) : null;
+    view = tripId ? "trips" : VIEWS.includes(wanted) ? wanted : "today";
+    if (picking && ["session", "review", "done", "mail", "dates", "vault", "trips"].includes(view)) stopMerge();
     render();
   }
   window.addEventListener("hashchange", fromHash);

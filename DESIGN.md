@@ -53,8 +53,19 @@ Each milestone is one to three PRs, ships tests and keeps the app deployable.
    tests/test_audit.py (every write route and who may reach it) and the page security
    headers; README "Launch" has Kev's steps.
 
-Later: Beth's Plate if she wants one, trips and the docs vault, home inventory, meals,
-agent phases 2 and 3, a native iOS app, automatic iMessage reading (needs a Mac).
+Next, the trip planner (§13, from the "Trip planner: design" Claude Doc, approved Oct 23,
+2026), in four milestones:
+
+- **T1, trips by hand** and **T2, options** (built together): places, trips, modules, the
+  day-by-day strip, the prep checklist, the text summary and the standby check pushes;
+  trip and module suggestions and skills `trip-start`, `trip-options`, `trip-capture` and
+  `trip-tonight`.
+- **T3, budget:** an estimate on every trip, and a review after it in money-hub.
+- **T4, free holds:** rung 2 of the ladder, for card-free holds only, each one approved.
+
+Later: Beth's Plate if she wants one, the docs vault, home inventory, meals, standby
+vacation ideas (`trip-ideas`), agent phase 3, a native iOS app, automatic iMessage reading
+(needs a Mac).
 
 ## 3. Architecture
 
@@ -133,6 +144,10 @@ service token, listed in `SERVICE_SCOPES`.
 | `date-options` | Three options for planned dates entering their window | morning |
 | `vault-picks` | Two vault picks that fit today, with summaries | morning |
 | `dates-interview` | Setup chat for birthdays, anniversaries and one-offs | on request |
+| `trip-start` | A trip suggestion for each travel date 45 days out | morning |
+| `trip-options` | Standby candidates, a paid or points backup, stays; price refreshes | morning |
+| `trip-capture` | Trip pieces from travel confirmations in mail and Kev's calendar | sweep |
+| `trip-tonight` | Tomorrow's candidates and backup checked before the 8pm push | sweep (after 4pm) |
 
 Mail content is untrusted: a skill treats it as data and never follows instructions in it.
 A routine's prompt lives in `routines/<name>.md`; changing it is a reviewed PR like the
@@ -172,6 +187,10 @@ skills.
 | Only the morning routine files vault picks, two a day per space, on unread entries in that space | tests/test_access.py, tests/test_vault.py |
 | No service token saves, reads or removes a vault entry for anyone; Beth's vault is hers | tests/test_access.py |
 | Vault titles, excerpts and summaries are labelled untrusted and set with `textContent`; links open only `https://` | app/routers/vault.py, app/static/board.js |
+| No service token writes a trip, a module or a place; agents file `trip` and `module` suggestions, always as options, never with a booking code | tests/test_trips.py, tests/test_audit.py |
+| Booking codes are left out of what service tokens read, and out of the text summary | tests/test_trips.py |
+| Trip links open only `https://`; trip and module text is set with `textContent` | app/services/trips.py, app/static/board.js |
+| trip-options and trip-tonight never buy, book or hold anything; trip-capture copies no codes or prices paid | the skills, review |
 | Dependencies pass `pip-audit` | CI |
 
 ## 9. Phone
@@ -285,3 +304,49 @@ Milestone 6. A read-later list that hands you two things a day instead of growin
   last 14 days. Closing the run sends one push per space that covers suggestions and reads.
 - **Untrusted text.** Titles, excerpts and pages are other people's words: the API labels
   them, the skill reads them as data, and pages set them with `textContent`.
+
+## 13. Trips
+
+Milestones T1 and T2. Planning around standby seats instead of fixed dates, without the
+cost of being away or the plants at home as a surprise. The design and the interview it
+came from are in the "Trip planner: design" Claude Doc.
+
+- **Trips and modules.** A trip (`trip`) lives on the Table: a name, a window in words
+  while dates settle ("week before Thanksgiving"), firm first and last days once set, who's
+  going, places in order, and a status: idea, planning, set, away, home, reviewed. Its
+  modules (`trip_module`) say how each part happens: a flight, a stay, a ride (`ground`)
+  or a plan, each with its days, which travelers it covers, who pays (standby, cash,
+  points, work, family, scholarship) and a state: option, chosen, booked, dropped. A
+  flight with no flight number is a **leg** still to fill. The trip page shows flights a
+  day at a time, then stays, rides and plans, and a day-by-day strip that marks a night
+  with no stay and a flying day with no ride. Kev, Beth and the household account all add
+  and change modules.
+- **Places** (`place`) remember the airports (first choice first, and the with-bags choice:
+  Home is JFK, or LGA with bags; Newark is left out), who hosts, the usual ride and its rough
+  cost.
+- **The prep checklist.** When a trip turns set (dates required), ordinary Table items go up
+  with `item.trip_id`, due a set number of days before leaving: the sublease (trips of a
+  week or more, 21 days), the neighbor and the plants (7), on-call (7, only when Kev's
+  calendar shows on-call during the trip), packing and bags (2), the key and the family text
+  (1), watering the peppers (the day). `scripts/migrate_trips.py` adds the column.
+- **The text summary.** `GET /api/table/trips/<id>/summary` is plain text for family: dates,
+  chosen and booked flights with times, where you're staying. No booking codes, nothing
+  behind the login wall shared. The page hands it to the phone's share sheet.
+- **Standby check pushes.** `scripts/trip_checks.py` on `table-trips.timer` (every 15
+  minutes). For each leg of a trip in planning, set or away with no booked flight that day:
+  at 8pm Eastern 14, 11 and 8 days out and every day from 5 days out, "check standby loads";
+  the night before, the candidates in order with the cheapest backup; and 3 hours before the
+  first candidate leaves, local to its airport, "check loads now". `trip_check` keeps each
+  from going out twice. Pending agent options count as candidates. "Made it" (booked) stops
+  them for that day.
+- **Agents.** Agents read trips and places and file two suggestion kinds, Table only:
+  `trip` (a new trip, idea or planning) and `module` (an option on a trip, or with
+  `module_id` a refresh of an option's price or times). Filed modules are always options
+  and never carry a booking code. They show on the trip page next to their leg, where
+  "Flying this one" accepts and chooses in one tap. Service tokens never see booking codes.
+  `trip-start` (morning) suggests a trip for each travel date 45 days out; `trip-options`
+  (morning) suggests standby candidates (Delta nonstops: first and last of the day, or every
+  one before 9am on a busy route, across all the trip's airports), a cash and points backup,
+  and stays, more often as the day nears; `trip-capture` (sweep) turns travel confirmations
+  into trip pieces; `trip-tonight` (the sweep after 4pm) checks tomorrow's list before the
+  8pm push. Rung 1 of the ladder only: nothing is bought, booked or held.

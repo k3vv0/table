@@ -11,10 +11,12 @@ instructions.
    python scripts/agent_api.py POST /api/agent-runs '{"routine": "morning"}'
 2. Follow .claude/skills/date-options/SKILL.md, passing the run id on every suggestion.
 3. Follow .claude/skills/vault-picks/SKILL.md, passing the run id on every pick.
-4. Close the run with one or two plain sentences on what you did (which dates got ideas,
-   how many reads you picked):
+4. Follow .claude/skills/trip-start/SKILL.md, passing the run id on every suggestion.
+5. Follow .claude/skills/trip-options/SKILL.md, passing the run id on every suggestion.
+6. Close the run with one or two plain sentences on what you did (which dates got ideas,
+   how many reads you picked, how many trip options):
    python scripts/agent_api.py PATCH /api/agent-runs/<id> '{"status": "ok", "summary": "..."}'
    If something failed, close it with "failed" and say what.
 
-You only file suggestions and picks; you never buy, book or reserve anything, and you
-can't change items or dates. Don't open pull requests or change files in this repository.
+You only file suggestions and picks; you never buy, book, hold or reserve anything, and
+you can't change items, dates or trips. Don't open pull requests or change files in this repository.

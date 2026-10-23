@@ -68,6 +68,7 @@ def _out(item: Item, sources: list[dict]) -> dict:
         "created_at": item.created_at.isoformat(),
         "done_at": item.done_at.isoformat() if item.done_at else None,
         "moneyhub_goal_id": item.moneyhub_goal_id,
+        "trip_id": item.trip_id,
         "sources": sources,
     }
 

@@ -149,6 +149,24 @@ goes in front before the hostname exists, so the app is never reachable without 
    which now runs `vault-picks` after `date-options`. It needs open web access to read the
    links it summarises.
 
+## Trips (milestones T1 and T2)
+
+1. **Deploy.** `deploy.sh` runs `scripts/migrate_trips.py`, which adds the trip tables and
+   `item.trip_id`.
+2. **Standby check pushes.** On the droplet, install the 15-minute timer:
+
+   ```bash
+   cp /opt/table/deploy/systemd/table-trips.* /etc/systemd/system/
+   systemctl daemon-reload && systemctl enable --now table-trips.timer
+   systemctl start table-trips && journalctl -u table-trips -n 20
+   ```
+
+3. **Places.** Under Trips on the Table, add Home (`JFK LGA`, bags `LGA`, marked Home) and
+   the places you go back to.
+4. **Routines.** Nothing to change: the morning and sweep prompts in `routines/` name the
+   new skills. The sweep's `trip-tonight` reads airline pages, so the `table-sweep`
+   environment needs the open web like `table-morning`.
+
 ## Launch (milestone 7)
 
 1. **Restore check.** Download yesterday's backup from the R2 bucket's `daily/` folder and

@@ -45,6 +45,8 @@ class Item(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
     done_at: Optional[datetime] = None
     moneyhub_goal_id: Optional[int] = None
+    # A trip's prep checklist item (DESIGN.md §13). scripts/migrate_trips.py adds it.
+    trip_id: Optional[int] = Field(default=None, foreign_key="trip.id", index=True)
 
 
 class ItemSource(SQLModel, table=True):
@@ -176,8 +178,9 @@ class SyncState(SQLModel, table=True):
 
 # item: add a new item. note: add to an item's notes (a watch's next steps, a date's
 # options). merge: fold duplicates into item_id. close: mark item_id done. date: add a
-# person's key date (payload). goal: link item_id to a money-hub goal (payload).
-SUGGESTION_KINDS = ("item", "note", "merge", "close", "date", "goal")
+# person's key date (payload). goal: link item_id to a money-hub goal (payload). trip: a
+# new trip (payload). module: an option on a trip, or a refresh of one (payload).
+SUGGESTION_KINDS = ("item", "note", "merge", "close", "date", "goal", "trip", "module")
 
 
 class Suggestion(SQLModel, table=True):
@@ -305,3 +308,103 @@ class VaultPick(SQLModel, table=True):
     created_by: str = ""
     run_id: Optional[int] = Field(default=None, foreign_key="agent_run.id")
     created_at: datetime = Field(default_factory=utcnow)
+
+
+# --- trips (DESIGN.md §13) --------------------------------------------------------------------
+
+# idea: maybe one day. planning: dates still settling. set: dates firm, the prep checklist
+# goes up. away, home: on it, back. reviewed: done with (the budget review, milestone T3).
+TRIP_STATUSES = ("idea", "planning", "set", "away", "home", "reviewed")
+# flight: one way between two airport sets. stay: where you sleep, a night or several.
+# ground: a ride, a train, a car. plan: anything dated inside the trip (dinner, a ceremony).
+MODULE_KINDS = ("flight", "stay", "ground", "plan")
+# option: one of several. chosen: the one you're going for. booked: done, or made the
+# standby flight. dropped: didn't make it, or decided against.
+MODULE_STATES = ("option", "chosen", "booked", "dropped")
+# Who pays: standby (non-rev), cash, points, work, family (or friends: free), scholarship.
+PAYERS = ("", "standby", "cash", "points", "work", "family", "scholarship")
+
+
+class Place(SQLModel, table=True):
+    """Somewhere you go more than once, so the next trip there starts filled in: its
+    airports (first choice first), who hosts, the usual ride and what it costs."""
+
+    __tablename__ = "place"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)  # e.g. "Home", "San Marcos", "Santa Clarita"
+    airports: str = ""  # IATA codes, first choice first: "JFK LGA"
+    bags_airport: str = ""  # the first choice when checking bags, if different: "LGA"
+    hosts: str = ""  # who you stay with there
+    ride: str = ""  # the usual way from the airport, e.g. "Uber from AUS, about 40 minutes"
+    ride_cost: Optional[int] = None  # rough dollars each way
+    notes: str = ""
+    home: bool = False  # the place trips start from
+    created_by: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class Trip(SQLModel, table=True):
+    """A stretch of time away, made of modules (DESIGN.md §13). Trips live on the Table."""
+
+    __tablename__ = "trip"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    status: str = Field(default="planning", index=True)
+    window: str = ""  # the target, in words, while dates settle: "week before Thanksgiving"
+    starts_on: Optional[date] = None  # firm once set
+    ends_on: Optional[date] = None
+    travelers: str = "kev,elizabeth"  # comma-separated: kev, elizabeth
+    places: str = ""  # place names, in order: "Austin, San Marcos"
+    notes: str = ""
+    key_date_id: Optional[int] = Field(default=None, foreign_key="key_date.id")
+    moneyhub_goal_id: Optional[int] = None
+    prep_made: bool = False  # the prep checklist went up
+    created_by: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class TripModule(SQLModel, table=True):
+    """One piece of a trip: a flight, a stay, a ride or a plan, for some of its travelers.
+    A flight with no flight number is a leg still to fill: agents suggest candidates for it."""
+
+    __tablename__ = "trip_module"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    trip_id: int = Field(foreign_key="trip.id", index=True)
+    kind: str
+    state: str = "option"
+    title: str
+    starts_on: Optional[date] = None
+    ends_on: Optional[date] = None  # a stay's last night is the day before ends_on
+    travelers: str = ""  # blank = everyone on the trip
+    payer: str = ""
+    cost: Optional[int] = None  # dollars, for the whole module, when known
+    points: Optional[int] = None
+    from_airports: str = ""  # flights: "JFK LGA"; one code once it's a real flight
+    to_airports: str = ""
+    flight: str = ""  # "DL 1234"; blank for a leg still to fill
+    departs: str = ""  # local time at the origin, "06:00"
+    arrives: str = ""  # local time at the destination
+    link: str = ""  # https only
+    confirmation: str = ""  # shown to people only, never to service tokens
+    notes: str = ""
+    created_by: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
+class TripCheck(SQLModel, table=True):
+    """One standby check push for one leg (a trip's flights on one day), so the timer never
+    sends it twice. stage: check:<days out>, eve, morning (DESIGN.md §13)."""
+
+    __tablename__ = "trip_check"
+    __table_args__ = (UniqueConstraint("trip_id", "leg_on", "stage"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    trip_id: int = Field(foreign_key="trip.id", index=True)
+    leg_on: date
+    stage: str
+    sent_at: datetime = Field(default_factory=utcnow)
