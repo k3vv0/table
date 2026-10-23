@@ -23,6 +23,9 @@ identity. Anything else gets a 403 before a route handler runs.
 - sweep: the sweep routine's own service token (SWEEP_SERVICE_TOKEN_ID, DESIGN.md §10).
   Reads the Table and Kev's Plate, sorts synced mail, files suggestions and logs its runs.
 
+- morning: the morning routine's service token (MORNING_SERVICE_TOKEN_ID, DESIGN.md §11).
+  Reads the Table and Kev's Plate, files suggestions (date-options) and logs its runs.
+
 Every routine has its own token and its own row in SERVICE_SCOPES, so the audit checks one
 table. Approving anything an agent suggested is a person's job: such routes also depend on
 require_person, which refuses every service token even if a scope lists the route by
@@ -45,7 +48,7 @@ from app.config import Settings
 
 log = logging.getLogger("table.access")
 
-PERSON, AGENT, CAPTURE, SWEEP = "person", "agent", "capture", "sweep"
+PERSON, AGENT, CAPTURE, SWEEP, MORNING = "person", "agent", "capture", "sweep", "morning"
 KEV, ELIZABETH = "kev", "elizabeth"
 PEOPLE = (KEV, ELIZABETH)
 SYNC_SPACES = ("table", KEV)
@@ -89,12 +92,17 @@ def check_settings(settings: Settings) -> None:
         raise RuntimeError("An email is in more than one of KEV_EMAILS, BETH_EMAILS and HOUSE_EMAILS.")
     ids = [
         i.strip()
-        for i in (settings.agent_service_token_id, settings.capture_service_token_id, settings.sweep_service_token_id)
+        for i in (
+            settings.agent_service_token_id,
+            settings.capture_service_token_id,
+            settings.sweep_service_token_id,
+            settings.morning_service_token_id,
+        )
         if i.strip()
     ]
     if len(ids) != len(set(ids)):
         # One token can't hold two roles; each exists to be narrower than the others.
-        raise RuntimeError("AGENT_, CAPTURE_ and SWEEP_SERVICE_TOKEN_ID must all differ.")
+        raise RuntimeError("AGENT_, CAPTURE_, SWEEP_ and MORNING_SERVICE_TOKEN_ID must all differ.")
     try:
         accounts, feeds = settings.mail_account_list, settings.calendar_feed_list
     except ValueError as exc:
@@ -151,6 +159,8 @@ async def identify(token: str | None, settings: Settings) -> Identity:
             return Identity(CAPTURE, common_name)
         if settings.sweep_service_token_id and common_name == settings.sweep_service_token_id.strip():
             return Identity(SWEEP, common_name)
+        if settings.morning_service_token_id and common_name == settings.morning_service_token_id.strip():
+            return Identity(MORNING, common_name)
     raise AccessDenied("unknown service token")
 
 
@@ -206,6 +216,8 @@ SERVICE_SCOPES: dict[str, Scope] = {
     AGENT: Scope(blocked_prefixes=plate_prefixes(ELIZABETH), write_patterns=(_SUGGEST,)),
     # The sweep routine (DESIGN.md §10): sorts mail, files suggestions, logs its runs.
     SWEEP: Scope(blocked_prefixes=plate_prefixes(ELIZABETH), write_patterns=(_SUGGEST, _SORT_MAIL, _RUN)),
+    # The morning routine (DESIGN.md §11): date-options files ideas as suggestions.
+    MORNING: Scope(blocked_prefixes=plate_prefixes(ELIZABETH), write_patterns=(_SUGGEST, _RUN)),
     # The iOS Shortcut: files one capture, reads nothing.
     CAPTURE: Scope(reads=False, write_exact=frozenset({"/api/capture"})),
 }

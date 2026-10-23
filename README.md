@@ -112,6 +112,30 @@ goes in front before the hostname exists, so the app is never reachable without 
 6. After a week of sorts that look right in the Mail tab, set `MAIL_ARCHIVE_NOISE=true` and
    deploy: noise then leaves the inbox under the `Table/Noise` label.
 
+## People and dates (milestone 5)
+
+1. **Deploy.** `deploy.sh` runs `scripts/migrate_suggestion_payload.py`, which adds the new
+   tables and one column; nothing else to do for the database.
+2. **Date alerts.** On the droplet, install the 6:30am timer and run it once:
+
+   ```bash
+   cp /opt/table/deploy/systemd/table-dates.* /etc/systemd/system/
+   systemctl daemon-reload && systemctl enable --now table-dates.timer
+   systemctl start table-dates && journalctl -u table-dates -n 20
+   ```
+
+3. **Add dates.** On the board's Dates tab: tap the common dates you want, add birthdays
+   and anniversaries, and give each person notes on what they like. Or ask Claude in this
+   project to run the dates interview; its suggestions show on the Dates tab to accept.
+4. **Morning token.** Access → Service Auth → create `table-morning`, and add it to a
+   Service Auth policy on the Table app (and save). Its Client ID goes in the droplet's
+   `.env` as `MORNING_SERVICE_TOKEN_ID`; deploy again.
+5. **Morning routine.** An environment `table-morning` like `table-sweep` (same setup
+   script, network access to `dash.sangmuah.net` plus the open web for researching ideas)
+   with `TABLE_CF_ACCESS_CLIENT_ID` and `TABLE_CF_ACCESS_CLIENT_SECRET` set to the
+   `table-morning` token. Then a routine in that environment at 7am Eastern whose prompt is
+   `routines/morning.md`, with the same "cd ~/table" preamble as the sweep.
+
 ## Deploying
 
 `bash scripts/deploy.sh` from the repo root (Git Bash on Windows is fine). It uses the

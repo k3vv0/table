@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # Client ID (not the secret) of the sweep routine's own service token (DESIGN.md §10):
     # reads mail, events and items, sorts mail, files suggestions. Never Beth's Plate.
     sweep_service_token_id: str = ""
+    # Client ID of the morning routine's own service token (DESIGN.md §11): reads the
+    # Table and Kev's Plate, files suggestions (date-options) and logs its runs.
+    morning_service_token_id: str = ""
+    # Where an item's money-hub goal link points. Table stores only the goal's number.
+    moneyhub_url: str = "https://money.sangmuah.net"
 
     # Mail and calendar sync (DESIGN.md §10, scripts/sync.py). Entries are separated by
     # ";", fields by "|". A space is where the account's commitments land: table or kev.

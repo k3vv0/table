@@ -7,7 +7,8 @@
   const SPACE = board.dataset.space;
   const TODAY = board.dataset.today; // YYYY-MM-DD, US Eastern, from the server
   const SYNCED = board.dataset.synced === "1"; // mail and calendar sync into this space
-  const VIEWS = ["today", "inbox", "later", "done", "session", "review", ...(SYNCED ? ["mail"] : [])];
+  const MONEYHUB = board.dataset.moneyhub; // where a money-hub goal link points
+  const VIEWS = ["today", "inbox", "later", "done", "session", "review", "dates", ...(SYNCED ? ["mail"] : [])];
   const list = document.getElementById("list");
   const statusEl = document.getElementById("status");
   const mergeBar = document.getElementById("merge-bar");
@@ -74,6 +75,19 @@
     return el("span", { class: cls, text: item.due_on === TODAY ? "Due today" : `${word} ${short(item.due_on)}` });
   }
 
+  // Web links in notes (date ideas come with them) become real links. Only https, and the
+  // text still goes in through textContent.
+  function linkified(text, cls) {
+    const out = el("span", { class: cls });
+    for (const part of text.split(/(https:\/\/[^\s<>"')]+)/)) {
+      if (part.startsWith("https://")) out.append(el("a", { href: part, target: "_blank", rel: "noopener noreferrer", text: part.replace(/^https:\/\/(www\.)?/, "").slice(0, 60) }));
+      else if (part) out.append(document.createTextNode(part));
+    }
+    return out;
+  }
+
+  const goalUrl = () => `${MONEYHUB}/plan/goals`;
+
   // --- actions --------------------------------------------------------------------------
 
   async function triage(item, action, deferUntil) {
@@ -117,12 +131,12 @@
     notes.value = item.notes;
     const due = el("input", { type: "date", name: "due_on", value: item.due_on || "", "aria-label": "Due" });
     const watch = el("input", { type: "checkbox", name: "watch", checked: item.kind === "watch" });
-    const fields = [
-      title,
-      notes,
-      el("label", { class: "due" }, "Due ", due),
-      el("label", { class: "chk" }, watch, " Watching for something (a reply, an approval)"),
-    ];
+    const goal = el("input", { type: "number", name: "goal", min: 1, value: item.moneyhub_goal_id || "", class: "num", "aria-label": "money-hub goal number" });
+    const fields = [title, notes];
+    if (/https:\/\//.test(item.notes)) fields.push(linkified(item.notes, "notes-links"));
+    fields.push(el("label", { class: "due" }, "Due ", due));
+    if (item.kind === "task" || item.kind === "watch") fields.push(el("label", { class: "chk" }, watch, " Watching for something (a reply, an approval)"));
+    fields.push(el("label", { class: "due" }, "money-hub goal # ", goal, item.moneyhub_goal_id ? el("a", { href: goalUrl(), target: "_blank", rel: "noopener", text: "Open Goals" }) : null));
     let owner = null;
     if (SPACE === "table") {
       owner = el(
@@ -151,7 +165,7 @@
     );
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const body = { title: title.value, notes: notes.value, due_on: due.value || null };
+      const body = { title: title.value, notes: notes.value, due_on: due.value || null, moneyhub_goal_id: goal.value ? Number(goal.value) : null };
       if (item.kind === "task" || item.kind === "watch") body.kind = watch.checked ? "watch" : "task";
       if (owner) body.owner = owner.value || null;
       try {
@@ -195,8 +209,10 @@
     if (item.status === "later" && item.defer_until && item.defer_until <= TODAY) meta.append(el("span", { class: "chip soon", text: "Back today" }));
     if (SPACE === "table") meta.append(el("span", { class: "chip owner", text: item.owner === "kev" ? "Kev's" : item.owner === "elizabeth" ? "Beth's" : "Shared" }));
     if (item.kind === "watch") meta.append(el("span", { class: "chip watch", text: "Watching" }));
+    if (item.kind === "date") meta.append(el("span", { class: "chip weight", text: "Date" }));
+    if (item.moneyhub_goal_id) meta.append(el("span", { class: "chip", text: `money-hub goal #${item.moneyhub_goal_id}` }));
     if (item.sources.length > 1) meta.append(el("span", { class: "chip", text: `${item.sources.length} sources` }));
-    else if (["email", "calendar"].includes(item.sources[0]?.kind)) meta.append(el("span", { class: "chip", text: item.sources[0].kind === "email" ? "From mail" : "From calendar" }));
+    else if (["email", "calendar"].includes(item.sources[0]?.kind) && item.kind !== "date") meta.append(el("span", { class: "chip", text: item.sources[0].kind === "email" ? "From mail" : "From calendar" }));
 
     const body = el(
       "button",
@@ -288,7 +304,7 @@
     const decide = async (action, body) => {
       try {
         await api("POST", `/suggestions/${s.id}/${action}`, body);
-        toast(action === "dismiss" ? "Dismissed." : body?.today ? "Accepted, on today's plate." : "Accepted.");
+        toast(action === "dismiss" ? "Dismissed." : s.kind === "date" ? "Date added." : body?.today ? "Accepted, on today's plate." : "Accepted.");
         await render();
       } catch (err) {
         toast(err.message);
@@ -299,12 +315,20 @@
       note: `Update “${s.item?.title || ""}”`,
       merge: `Merge into “${s.item?.title || ""}”`,
       close: `Mark “${s.item?.title || ""}” done`,
+      date: "Add a date",
+      goal: `Link “${s.item?.title || ""}” to a money-hub goal`,
     }[s.kind];
     const meta = el("div", { class: "meta" });
     if (s.due_on) meta.append(el("span", { class: "chip", text: `Due ${short(s.due_on)}` }));
     if (s.source?.kind === "email") meta.append(el("span", { class: "chip", text: `Mail from ${s.source.from}: ${s.source.subject}` }));
     if (s.source?.kind === "calendar") meta.append(el("span", { class: "chip", text: `Calendar: ${s.source.summary}, ${short(s.source.on)}` }));
     for (const m of s.merge) meta.append(el("span", { class: "chip", text: `+ ${m.title}` }));
+    if (s.kind === "date") {
+      if (s.payload.person_name) meta.append(el("span", { class: "chip", text: s.payload.relation ? `${s.payload.person_name} · ${s.payload.relation}` : s.payload.person_name }));
+      meta.append(el("span", { class: "chip", text: s.payload.rule }));
+      meta.append(el("span", { class: "chip weight", text: s.payload.weight === "planned" ? "Planned: 30 days ahead" : "Light: the day before" }));
+    }
+    if (s.kind === "goal") meta.append(el("span", { class: "chip", text: `money-hub goal #${s.payload.moneyhub_goal_id}` }));
     const actions = [btn("Accept", () => decide("accept", {}), "btn small primary")];
     if (s.kind === "item") actions.push(btn("Accept for today", () => decide("accept", { today: true })));
     actions.push(btn("Dismiss", () => decide("dismiss"), "btn small ghost"));
@@ -316,7 +340,7 @@
         { class: "item-body" },
         el("span", { class: "kicker", text: heading }),
         s.title ? el("span", { class: "title", text: s.title }) : null,
-        s.notes ? el("span", { class: "notes", text: s.notes }) : null,
+        s.notes ? linkified(s.notes, "notes full") : null,
         meta.childNodes.length ? meta : null,
         s.rationale ? el("span", { class: "why", text: s.rationale }) : null,
       ),
@@ -324,8 +348,9 @@
     );
   }
 
-  async function suggestionsSection() {
-    const { suggestions } = await api("GET", "/suggestions");
+  async function suggestionsSection(only) {
+    let { suggestions } = await api("GET", "/suggestions");
+    if (only) suggestions = suggestions.filter((s) => s.kind === only);
     if (!suggestions.length) return null;
     return el(
       "div",
@@ -388,11 +413,223 @@
     );
   }
 
+
+  // --- people and dates (DESIGN.md §11) -------------------------------------------------------
+  // Planned dates go into the inbox 30 days ahead, with ideas from the morning routine; light
+  // ones land on today's plate the day before. Both push on the day.
+
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const WEIGHT_TEXT = { planned: "Planned", light: "Light" };
+
+  function whenText(d) {
+    if (d.next_on === null) return "Passed";
+    if (d.days_away === 0) return "Today";
+    if (d.days_away === 1) return "Tomorrow";
+    return `${short(d.next_on)} · in ${d.days_away} days`;
+  }
+
+  async function saveDate(path, method, body, done) {
+    try {
+      await api(method, path, body);
+      toast(done);
+      await render();
+    } catch (err) {
+      toast(err.message);
+    }
+  }
+
+  function ownerSelect(value) {
+    const pick = el(
+      "select",
+      { "aria-label": "Whose job" },
+      el("option", { value: "", text: "Shared" }),
+      el("option", { value: "kev", text: "Kev's" }),
+      el("option", { value: "elizabeth", text: "Beth's" }),
+    );
+    pick.value = value || "";
+    return pick;
+  }
+
+  function weightSelect(value) {
+    const pick = el(
+      "select",
+      { "aria-label": "Weight" },
+      el("option", { value: "light", text: "Light: the day before" }),
+      el("option", { value: "planned", text: "Planned: 30 days ahead, with ideas" }),
+    );
+    pick.value = value || "light";
+    return pick;
+  }
+
+  function dateEditor(d, li) {
+    const form = el("form", { class: "editor" });
+    const title = el("input", { name: "title", value: d.title, maxlength: 200, required: true, "aria-label": "Title" });
+    const notes = el("textarea", { rows: 2, "aria-label": "Notes", placeholder: "Notes (budget, what worked last year)" });
+    notes.value = d.notes;
+    const weight = weightSelect(d.weight);
+    const owner = SPACE === "table" ? ownerSelect(d.owner) : null;
+    const fields = [title, notes, el("label", { class: "due" }, "Weight ", weight)];
+    if (owner) fields.push(el("label", { class: "due" }, "Whose job ", owner));
+    let day = null;
+    let year = null;
+    if (d.day !== null) {
+      day = el("input", { type: "date", value: `${d.year || 2000}-${String(d.month).padStart(2, "0")}-${String(d.day).padStart(2, "0")}`, "aria-label": "Day" });
+      year = el("input", { type: "checkbox", checked: Boolean(d.year) });
+      fields.push(el("label", { class: "due" }, "Day ", day), el("label", { class: "chk" }, year, d.recurs ? " Count the years from that one" : " Year matters"));
+    } else {
+      fields.push(el("p", { class: "muted", text: d.rule }));
+    }
+    form.append(
+      ...fields,
+      el(
+        "div",
+        { class: "editor-row" },
+        el("button", { type: "submit", class: "btn primary", text: "Save" }),
+        el("button", { type: "button", class: "btn ghost", text: "Cancel", onclick: () => render() }),
+        el("button", { type: "button", class: "btn ghost", text: "Remove", onclick: () => saveDate(`/dates/${d.id}`, "PATCH", { active: false }, "Removed.") }),
+      ),
+    );
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const body = { title: title.value, notes: notes.value, weight: weight.value };
+      if (owner) body.owner = owner.value || null;
+      if (day && day.value) {
+        const [y, m, dd] = day.value.split("-").map(Number);
+        Object.assign(body, { month: m, day: dd, year: year.checked || !d.recurs ? y : null });
+      }
+      saveDate(`/dates/${d.id}`, "PATCH", body, "Saved.");
+    });
+    li.replaceChildren(form);
+    title.focus();
+  }
+
+  function dateRow(d) {
+    const li = el("li", { class: "item" });
+    const meta = el("div", { class: "meta" });
+    meta.append(el("span", { class: d.days_away !== null && d.days_away <= 1 ? "chip soon" : "chip", text: whenText(d) }));
+    meta.append(el("span", { class: "chip weight", text: WEIGHT_TEXT[d.weight] }));
+    if (d.turns) meta.append(el("span", { class: "chip", text: /birthday/i.test(d.title) ? `Turns ${d.turns}` : `${d.turns} years` }));
+    if (SPACE === "table") meta.append(el("span", { class: "chip owner", text: d.owner === "kev" ? "Kev's" : d.owner === "elizabeth" ? "Beth's" : "Shared" }));
+    if (d.prep_item_id) meta.append(el("span", { class: "chip", text: d.options_suggested ? "Ideas suggested" : "On the board" }));
+    li.append(
+      el(
+        "button",
+        { type: "button", class: "item-body", onclick: () => dateEditor(d, li) },
+        d.person ? el("span", { class: "kicker", text: d.person.relation ? `${d.person.name} · ${d.person.relation}` : d.person.name }) : null,
+        el("span", { class: "title", text: d.title }),
+        el("span", { class: "notes", text: d.rule }),
+        meta,
+      ),
+    );
+    return li;
+  }
+
+  function addDateForm(people) {
+    const form = el("form", { class: "capture" });
+    const title = el("input", { name: "title", placeholder: "Add a date: Mom's birthday, our anniversary, Sam's graduation…", maxlength: 200, required: true, "aria-label": "What" });
+    const list = el("datalist", { id: "people-list" }, ...people.map((p) => el("option", { value: p.name })));
+    const who = el("input", { placeholder: "Whose (optional)", list: "people-list", maxlength: 120, "aria-label": "Person", class: "short" });
+    const day = el("input", { type: "date", required: true, "aria-label": "Day" });
+    const repeat = el(
+      "select",
+      { "aria-label": "Repeats" },
+      el("option", { value: "yearly", text: "Every year" }),
+      el("option", { value: "since", text: "Every year, counting from this one" }),
+      el("option", { value: "once", text: "Just this once" }),
+    );
+    const weight = weightSelect("light");
+    const owner = SPACE === "table" ? ownerSelect("") : null;
+    form.append(
+      title,
+      el(
+        "div",
+        { class: "capture-row" },
+        who,
+        list,
+        el("label", { class: "due" }, "On ", day),
+        repeat,
+        weight,
+        owner ? el("label", { class: "due" }, "Whose job ", owner) : null,
+        el("button", { type: "submit", class: "btn primary", text: "Add" }),
+      ),
+    );
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const [y, m, d] = day.value.split("-").map(Number);
+      const body = { title: title.value, month: m, day: d, year: repeat.value === "yearly" ? null : y, recurs: repeat.value !== "once", weight: weight.value, person_name: who.value };
+      if (owner) body.owner = owner.value || null;
+      saveDate("/dates", "POST", body, "Date added.");
+    });
+    return form;
+  }
+
+  function personRow(p) {
+    const li = el("li", { class: "item" });
+    const edit = () => {
+      const form = el("form", { class: "editor" });
+      const name = el("input", { name: "title", value: p.name, maxlength: 120, required: true, "aria-label": "Name" });
+      const relation = el("input", { value: p.relation, maxlength: 200, placeholder: "Who they are (Beth's mom, friend from USC)", "aria-label": "Relation" });
+      const notes = el("textarea", { rows: 3, placeholder: "What they like, sizes, what they got last time. The date ideas read this.", "aria-label": "Notes" });
+      notes.value = p.notes;
+      form.append(
+        name,
+        relation,
+        notes,
+        el(
+          "div",
+          { class: "editor-row" },
+          el("button", { type: "submit", class: "btn primary", text: "Save" }),
+          el("button", { type: "button", class: "btn ghost", text: "Cancel", onclick: () => render() }),
+        ),
+      );
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        saveDate(`/people/${p.id}`, "PATCH", { name: name.value, relation: relation.value, notes: notes.value }, "Saved.");
+      });
+      li.replaceChildren(form);
+    };
+    li.append(
+      el(
+        "button",
+        { type: "button", class: "item-body", onclick: edit },
+        el("span", { class: "title", text: p.name }),
+        p.relation ? el("span", { class: "kicker", text: p.relation }) : null,
+        el("span", { class: "notes", text: p.notes || "No notes yet. Add what they like so the ideas fit." }),
+      ),
+    );
+    return li;
+  }
+
+  async function renderDates() {
+    const [{ dates, presets }, { people }, suggested] = await Promise.all([api("GET", "/dates"), api("GET", "/people"), suggestionsSection("date")]);
+    const parts = [
+      el("p", { class: "lead", text: "Planned dates show up in the inbox 30 days ahead with three ideas. Light ones land on today's plate the day before. Both get a push on the day." }),
+      addDateForm(people),
+      suggested || "",
+    ];
+    const coming = el("div", { class: "section" }, el("h2", { text: "Coming up" }));
+    coming.append(dates.length ? el("ul", { class: "items" }, ...dates.map(dateRow)) : el("p", { class: "muted", text: "No dates yet. Add one above, pick from the common ones below, or ask Claude to run the dates interview." }));
+    parts.push(coming);
+    if (presets.length) {
+      const wrap = el("div", { class: "section" }, el("h2", { text: "Common dates" }));
+      const row = el("div", { class: "meta presets" });
+      for (const p of presets) {
+        row.append(el("button", { type: "button", class: "btn small ghost", title: p.rule, text: `+ ${p.title}`, onclick: () => saveDate(`/dates/presets/${p.key}`, "POST", null, `${p.title} added.`) }));
+      }
+      wrap.append(row);
+      parts.push(wrap);
+    }
+    if (people.length) parts.push(el("div", { class: "section" }, el("h2", { text: "People" }), el("ul", { class: "items" }, ...people.map(personRow))));
+    list.replaceChildren(...parts);
+  }
+
   async function render() {
     for (const a of board.querySelectorAll(".views a")) a.classList.toggle("on", a.dataset.view === view);
     try {
       if (view === "mail") {
         await renderMail();
+      } else if (view === "dates") {
+        await renderDates();
       } else if (view === "session") {
         const [s, suggested] = await Promise.all([api("GET", "/session"), suggestionsSection()]);
         list.replaceChildren(
@@ -433,7 +670,7 @@
   function fromHash() {
     const wanted = location.hash.slice(1);
     view = VIEWS.includes(wanted) ? wanted : "today";
-    if (picking && ["session", "review", "done", "mail"].includes(view)) stopMerge();
+    if (picking && ["session", "review", "done", "mail", "dates"].includes(view)) stopMerge();
     render();
   }
   window.addEventListener("hashchange", fromHash);
@@ -455,7 +692,7 @@
     }
   });
 
-  // Hotkeys, like Plate: n to capture, 1-7 to switch views, Escape to back out.
+  // Hotkeys, like Plate: n to capture, 1-8 to switch views, Escape to back out.
   document.addEventListener("keydown", (e) => {
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
     if (e.key === "Escape") {
@@ -468,7 +705,7 @@
       e.preventDefault();
       document.getElementById("capture-title").focus();
     }
-    if (/^[1-7]$/.test(e.key) && VIEWS[Number(e.key) - 1]) location.hash = VIEWS[Number(e.key) - 1];
+    if (/^[1-8]$/.test(e.key) && VIEWS[Number(e.key) - 1]) location.hash = VIEWS[Number(e.key) - 1];
   });
 
   fromHash();

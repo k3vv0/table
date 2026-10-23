@@ -30,6 +30,7 @@ HOUSE = "us@example.com"
 AGENT_ID = "agent-client-id.access"
 CAPTURE_ID = "capture-client-id.access"
 SWEEP_ID = "sweep-client-id.access"
+MORNING_ID = "morning-client-id.access"
 
 _key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -57,6 +58,7 @@ def access_on(monkeypatch):
     monkeypatch.setenv("AGENT_SERVICE_TOKEN_ID", AGENT_ID)
     monkeypatch.setenv("CAPTURE_SERVICE_TOKEN_ID", CAPTURE_ID)
     monkeypatch.setenv("SWEEP_SERVICE_TOKEN_ID", SWEEP_ID)
+    monkeypatch.setenv("MORNING_SERVICE_TOKEN_ID", MORNING_ID)
     monkeypatch.setattr(access, "_signing_key", lambda token, team: _key.public_key())
     get_settings.cache_clear()
     yield
@@ -68,6 +70,7 @@ BETH_H = lambda: _as(email="Beth@Example.com")  # noqa: E731  (case-insensitive 
 AGENT_H = lambda: _as(common_name=AGENT_ID)  # noqa: E731
 CAPTURE_H = lambda: _as(common_name=CAPTURE_ID)  # noqa: E731
 SWEEP_H = lambda: _as(common_name=SWEEP_ID)  # noqa: E731
+MORNING_H = lambda: _as(common_name=MORNING_ID)  # noqa: E731
 
 
 # --- who gets in --------------------------------------------------------------------
@@ -268,6 +271,40 @@ def test_agent_files_suggestions_but_sorts_no_mail_and_runs_nothing():
     assert client.post("/api/table/suggestions/1/accept", headers=AGENT_H()).status_code == 403
 
 
+def test_morning_reads_dates_and_files_ideas_but_changes_no_date():
+    assert client.get("/api/table/dates", headers=MORNING_H()).status_code == 200
+    assert client.get("/api/plates/kev/people", headers=MORNING_H()).status_code == 200
+    run = client.post("/api/agent-runs", json={"routine": "morning"}, headers=MORNING_H())
+    assert run.status_code == 201 and run.json()["role"] == "morning"
+    s = client.post("/api/plates/kev/suggestions", json={"kind": "item", "title": "Book dinner"}, headers=MORNING_H())
+    assert s.status_code == 201 and s.json()["created_by"] == "morning"
+    for method, path in [
+        ("POST", "/api/table/dates"),
+        ("PATCH", "/api/table/dates/1"),
+        ("POST", "/api/table/dates/presets/valentines"),
+        ("POST", "/api/plates/kev/people"),
+        ("PATCH", "/api/plates/kev/people/1"),
+        ("POST", "/api/table/items"),
+        ("PATCH", "/api/table/mail/1"),
+        ("GET", "/api/plates/elizabeth/dates"),
+        ("GET", "/api/plates/elizabeth/people"),
+        ("POST", "/api/plates/elizabeth/suggestions"),
+        ("POST", f"/api/plates/kev/suggestions/{s.json()['id']}/accept"),
+    ]:
+        assert client.request(method, path, json={"title": "x", "month": 1, "day": 1}, headers=MORNING_H()).status_code == 403, path
+
+
+def test_agents_and_the_sweep_change_no_dates_and_never_see_beths():
+    for headers in (AGENT_H, SWEEP_H):
+        assert client.get("/api/table/dates", headers=headers()).status_code == 200
+        assert client.post("/api/table/dates", json={"title": "x", "month": 1, "day": 1}, headers=headers()).status_code == 403
+        assert client.post("/api/table/dates/presets/christmas", headers=headers()).status_code == 403
+        assert client.get("/api/plates/elizabeth/dates", headers=headers()).status_code == 403
+    # Beth keeps her own dates, and Kev can't see them.
+    assert client.get("/api/plates/elizabeth/dates", headers=BETH_H()).status_code == 200
+    assert client.get("/api/plates/elizabeth/dates", headers=KEV_H()).status_code == 403
+
+
 def test_a_routine_closes_only_its_own_runs():
     run = client.post("/api/agent-runs", json={"routine": "sweep"}, headers=KEV_H()).json()
     assert client.patch(f"/api/agent-runs/{run['id']}", json={"status": "ok"}, headers=SWEEP_H()).status_code == 404
@@ -290,9 +327,10 @@ def test_api_responses_are_never_cached():
         ({"access_team_domain": TEAM, "access_aud": AUD, "kev_emails": KEV, "beth_emails": KEV}, "more than one"),
         ({"access_team_domain": TEAM, "access_aud": AUD, "kev_emails": KEV, "house_emails": KEV}, "more than one"),
         ({"agent_service_token_id": "same", "capture_service_token_id": "same"}, "must all differ"),
+        ({"sweep_service_token_id": "same", "morning_service_token_id": "same"}, "must all differ"),
     ],
 )
 def test_check_settings_refuses_half_configured(values, message):
-    blank = dict(access_team_domain="", access_aud="", kev_emails="", beth_emails="", house_emails="", agent_service_token_id="", capture_service_token_id="", sweep_service_token_id="", mail_accounts="", calendar_feeds="")
+    blank = dict(access_team_domain="", access_aud="", kev_emails="", beth_emails="", house_emails="", agent_service_token_id="", capture_service_token_id="", sweep_service_token_id="", morning_service_token_id="", mail_accounts="", calendar_feeds="")
     with pytest.raises(RuntimeError, match=message):
         access.check_settings(Settings(_env_file=None, **{**blank, **values}))

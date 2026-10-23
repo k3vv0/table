@@ -4,6 +4,7 @@ people, dates and suggestions arrive with the milestones that use them."""
 from datetime import date, datetime, timezone
 from typing import Optional
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -173,9 +174,10 @@ class SyncState(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
-# item: add a new item. note: add to an item's notes (a watch's next steps). merge: fold
-# duplicates into item_id. close: mark item_id done.
-SUGGESTION_KINDS = ("item", "note", "merge", "close")
+# item: add a new item. note: add to an item's notes (a watch's next steps, a date's
+# options). merge: fold duplicates into item_id. close: mark item_id done. date: add a
+# person's key date (payload). goal: link item_id to a money-hub goal (payload).
+SUGGESTION_KINDS = ("item", "note", "merge", "close", "date", "goal")
 
 
 class Suggestion(SQLModel, table=True):
@@ -197,6 +199,7 @@ class Suggestion(SQLModel, table=True):
     source_kind: str = ""  # email | calendar
     source_ref: str = Field(default="", index=True)  # source_message.gm_msgid or event ref
     rationale: str = ""  # why the agent thinks so, shown next to the buttons
+    payload: str = ""  # JSON, for kinds date and goal (scripts/migrate_suggestion_payload.py)
     created_by: str = ""
     run_id: Optional[int] = Field(default=None, foreign_key="agent_run.id")
     created_at: datetime = Field(default_factory=utcnow)
@@ -217,3 +220,67 @@ class AgentRun(SQLModel, table=True):
     summary: str = ""
     started_at: datetime = Field(default_factory=utcnow)
     finished_at: Optional[datetime] = None
+
+
+# --- people and dates (milestone 5, DESIGN.md §11) ------------------------------------------
+
+# planned: alerts 30 days ahead with an item to prepare (and date-options' three ideas).
+# light: an item and a push the day before, and a push on the day.
+WEIGHTS = ("planned", "light")
+
+
+class Person(SQLModel, table=True):
+    """Someone whose dates matter. Lives in one space like an item: a family birthday on
+    the Table, Beth's birthday on Kev's Plate so the planning stays a surprise."""
+
+    __tablename__ = "person"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    space: str = Field(index=True)
+    name: str
+    relation: str = ""  # e.g. "Beth's mom", "friend from USC"
+    notes: str = ""  # what they like, sizes, what they got last year: date-options reads it
+    archived: bool = False
+    created_by: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class KeyDate(SQLModel, table=True):
+    """A date to remember. Either a fixed day (month and day) or a rule (the nth weekday
+    of a month, as for Mother's Day); yearly unless recurs is off, when year says which
+    one. On a yearly date, year is optional and means the first one (a birth year)."""
+
+    __tablename__ = "key_date"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    space: str = Field(index=True)
+    person_id: Optional[int] = Field(default=None, foreign_key="person.id")
+    owner: Optional[str] = None  # Table only: whose job the prep is; blank = shared
+    title: str  # e.g. "Mom's birthday", "Girlfriend's Day"
+    month: int
+    day: Optional[int] = None  # a fixed day; blank when nth and weekday set the day
+    nth: Optional[int] = None  # 1-4, or -1 for the last one in the month
+    weekday: Optional[int] = None  # 0 = Monday ... 6 = Sunday
+    year: Optional[int] = None
+    recurs: bool = True
+    weight: str = "light"  # planned | light
+    notes: str = ""
+    preset: str = Field(default="", index=True)  # the preloaded date it came from, if any
+    active: bool = True
+    created_by: str = ""
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class DateAlert(SQLModel, table=True):
+    """One alert sent for one occurrence of a date, so the daily run never sends it twice.
+    stage: prep (the item went up), eve (the day before), day (the day of)."""
+
+    __tablename__ = "date_alert"
+    __table_args__ = (UniqueConstraint("key_date_id", "occurs_on", "stage"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key_date_id: int = Field(foreign_key="key_date.id", index=True)
+    occurs_on: date
+    stage: str
+    item_id: Optional[int] = Field(default=None, foreign_key="item.id")
+    sent_at: datetime = Field(default_factory=utcnow)

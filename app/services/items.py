@@ -88,7 +88,7 @@ def create(
     return item
 
 
-EDITABLE = ("title", "notes", "due_on", "owner", "kind")
+EDITABLE = ("title", "notes", "due_on", "owner", "kind", "moneyhub_goal_id")
 # By hand an item is a task, or a watch waiting on something (watch-check reads those).
 # Dates and vault links get their kinds from their own milestones.
 HAND_KINDS = ("task", "watch")
@@ -112,6 +112,12 @@ def update(session: Session, identity: Identity, item: Item, changes: dict) -> I
         if changes["kind"] not in HAND_KINDS or item.kind not in HAND_KINDS:
             raise HTTPException(status_code=422, detail="Only a task can become a watch, and back.")
         item.kind = changes["kind"]
+    if "moneyhub_goal_id" in changes:
+        # Only the goal's id: Table links to money-hub and never copies money data (§11).
+        goal = changes["moneyhub_goal_id"]
+        if goal is not None and (not isinstance(goal, int) or goal < 1):
+            raise HTTPException(status_code=422, detail="moneyhub_goal_id must be a goal's number, or blank.")
+        item.moneyhub_goal_id = goal
     item.updated_at = utcnow()
     record(session, identity, "item.edit", f"item:{item.id}", ", ".join(sorted(changes)))
     session.commit()
