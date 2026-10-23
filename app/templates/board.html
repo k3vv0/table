@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}{{ heading }}{% endblock %}
+{% block content %}
+<div id="board" data-api="{{ api_base }}" data-space="{{ space }}" data-today="{{ today.isoformat() }}">
+  <div class="head">
+    <h1>{{ heading }}</h1>
+    <p class="date">{{ today.strftime("%A, %B ") ~ today.day }}{% if private %} · only you can see this{% endif %}</p>
+  </div>
+
+  <form id="capture" class="capture" autocomplete="off">
+    <label class="sr" for="capture-title">New item</label>
+    <input id="capture-title" name="title" placeholder="{{ placeholder }}" maxlength="300" required />
+    <div class="capture-row">
+      <label class="chk"><input type="checkbox" name="today" /> Today</label>
+      <label class="due">Due <input type="date" name="due_on" /></label>
+      <button type="submit" class="btn primary">Add</button>
+    </div>
+  </form>
+
+  <nav class="views" aria-label="Views">
+    <a href="#today" data-view="today">Today <span class="n" data-count="today"></span></a>
+    <a href="#inbox" data-view="inbox">Inbox <span class="n" data-count="inbox"></span></a>
+    <a href="#later" data-view="later">Later <span class="n" data-count="later"></span></a>
+    <a href="#done" data-view="done">Done</a>
+    <span class="gap"></span>
+    <a href="#session" data-view="session">Daily session</a>
+    <a href="#review" data-view="review">Weekly review</a>
+  </nav>
+
+  <div id="merge-bar" class="merge-bar" hidden>
+    <span id="merge-count">Pick the duplicates</span>
+    <button type="button" class="btn" id="merge-go" disabled>Merge into first picked</button>
+    <button type="button" class="btn ghost" id="merge-cancel">Cancel</button>
+  </div>
+
+  <section id="list" aria-live="polite"></section>
+  <p id="status" class="toast" role="status" hidden></p>
+</div>
+<script src="/static/board.js?v={{ asset_version() }}" defer></script>
+{% endblock %}
