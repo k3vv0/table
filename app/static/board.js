@@ -338,8 +338,9 @@
     }
     const actions = [btn("Accept", () => decide("accept", {}), "btn small primary")];
     if (s.kind === "item") actions.push(btn("Accept for today", () => decide("accept", { today: true })));
+    if (s.kind === "date") actions.push(btn("Edit", () => dateSuggestionEditor(s, li, decide)));
     actions.push(btn("Dismiss", () => decide("dismiss"), "btn small ghost"));
-    return el(
+    const li = el(
       "li",
       { class: "item suggestion" },
       el(
@@ -353,6 +354,60 @@
       ),
       el("div", { class: "actions" }, ...actions),
     );
+    return li;
+  }
+
+  // A suggested date, opened up to fix before it's added: the day the interview got wrong,
+  // whose it is, how much lead time. Saving accepts it with the changes.
+  function dateSuggestionEditor(s, li, decide) {
+    const p = s.payload;
+    const form = el("form", { class: "editor" });
+    const title = el("input", { name: "title", value: s.title, maxlength: 200, required: true, "aria-label": "Title" });
+    const who = el("input", { value: p.person_name || "", placeholder: "Whose (optional)", maxlength: 120, "aria-label": "Person" });
+    const relation = el("input", { value: p.relation || "", placeholder: "Who they are (Beth's mom)", maxlength: 200, "aria-label": "Relation" });
+    const notes = el("textarea", { rows: 2, "aria-label": "Notes", placeholder: "Notes (budget, what worked last year)" });
+    notes.value = p.notes || "";
+    const yearShown = p.year || Number(TODAY.slice(0, 4));
+    const day = el("input", { type: "date", required: p.day !== null, "aria-label": "Day" });
+    if (p.day !== null) day.value = `${yearShown}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+    const repeat = el(
+      "select",
+      { "aria-label": "Repeats" },
+      el("option", { value: "yearly", text: "Every year" }),
+      el("option", { value: "since", text: "Every year, counting from this one" }),
+      el("option", { value: "once", text: "Just this once" }),
+    );
+    repeat.value = !p.recurs ? "once" : p.year ? "since" : "yearly";
+    const weight = weightSelect(p.weight);
+    const owner = SPACE === "table" ? ownerSelect(p.owner) : null;
+    const fields = [title, who, relation, notes];
+    // A rule (the second Sunday of May) stays a rule unless a fixed day is picked.
+    if (p.day === null) fields.push(el("p", { class: "muted", text: `${p.rule}. Pick a day below to make it a fixed date instead.` }));
+    fields.push(el("label", { class: "due" }, "Day ", day), el("label", { class: "due" }, "Repeats ", repeat), el("label", { class: "due" }, "Weight ", weight));
+    if (owner) fields.push(el("label", { class: "due" }, "Whose job ", owner));
+    form.append(
+      ...fields,
+      el(
+        "div",
+        { class: "editor-row" },
+        el("button", { type: "submit", class: "btn primary", text: "Save date" }),
+        el("button", { type: "button", class: "btn ghost", text: "Cancel", onclick: () => render() }),
+      ),
+    );
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const body = { title: title.value, person_name: who.value, relation: relation.value, notes: notes.value, weight: weight.value, recurs: repeat.value !== "once" };
+      if (owner) body.owner = owner.value || null;
+      if (day.value) {
+        const [y, m, d] = day.value.split("-").map(Number);
+        Object.assign(body, { month: m, day: d, year: repeat.value === "yearly" ? null : y });
+      } else {
+        body.year = repeat.value === "yearly" ? null : p.year;
+      }
+      decide("accept", { date: body });
+    });
+    li.replaceChildren(form);
+    title.focus();
   }
 
   async function suggestionsSection(only) {

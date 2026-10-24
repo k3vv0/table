@@ -238,6 +238,20 @@ def test_a_date_suggestion_adds_the_date_and_person_only_when_accepted():
     assert file(kind="date", payload=payload).status_code == 409  # now it's a real date
 
 
+def test_a_date_suggestion_can_be_changed_before_it_is_accepted():
+    payload = {"title": "Mother's Day", "month": 5, "nth": 2, "weekday": 6, "weight": "light", "person_name": "Mom"}
+    s = file(kind="date", payload=payload).json()
+    r = client.post(f"/api/plates/kev/suggestions/{s['id']}/accept", json={"date": {"month": 2, "day": 30}})
+    assert r.status_code == 422  # checked like a date typed in, and still pending
+    assert client.get("/api/plates/kev/suggestions").json()["suggestions"][0]["status"] == "pending"
+    edits = {"title": "Mom's birthday", "month": 6, "day": 3, "year": 1960, "weight": "planned", "person_name": "Mom", "relation": "Kev's mom", "id": 99}
+    r = client.post(f"/api/plates/kev/suggestions/{s['id']}/accept", json={"date": edits})
+    assert r.status_code == 200, r.text
+    [d] = client.get("/api/plates/kev/dates").json()["dates"]
+    assert (d["title"], d["month"], d["day"], d["nth"], d["year"], d["weight"]) == ("Mom's birthday", 6, 3, None, 1960, "planned")
+    assert d["person"]["name"] == "Mom" and d["person"]["relation"] == "Kev's mom"
+
+
 def test_a_bad_date_suggestion_is_refused():
     r = file(kind="date", payload={"title": "x", "month": 2, "day": 31})
     assert r.status_code == 422

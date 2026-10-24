@@ -55,6 +55,7 @@ class AcceptIn(BaseModel):
     due_on: Optional[date] = None
     today: bool = False
     state: Optional[str] = None  # kind module: accept straight as chosen ("Flying this one")
+    date: Optional[dict] = None  # kind date: the person's changes to the date before it's added
 
 
 def message_out(m: SourceMessage) -> dict:

@@ -248,12 +248,13 @@ def get(session: Session, space: str, suggestion_id: int) -> Suggestion:
 
 def accept(session: Session, identity: Identity, s: Suggestion, edits: dict) -> Item | None:
     """Apply a suggestion. edits may change an item suggestion's title, notes or due date,
-    or put it straight on today's plate. A date suggestion adds the date (and its person)
-    and returns None: there's no item until the date's window opens. Trip and module
+    or put it straight on today's plate. A date suggestion adds the date (and its person),
+    with any of its fields changed by edits["date"], and returns None: there's no item until the date's window opens. Trip and module
     suggestions add or refresh trips and return None too; edits may carry a module's state."""
     if s.kind in ("date", "trip", "module"):
         payload = json.loads(s.payload)
         if s.kind == "date":
+            payload = _edited_date(payload, edits.get("date"))
             target = f"date:{dates.add_date(session, identity, s.space, payload).id}"
         elif s.kind == "trip":
             target = f"trip:{trips.create_trip(session, identity, payload).id}"
@@ -310,6 +311,20 @@ def accept(session: Session, identity: Identity, s: Suggestion, edits: dict) -> 
     svc.record(session, identity, "suggestion.accept", f"suggestion:{s.id}", f"item:{item.id}")
     session.commit()
     return item
+
+
+DATE_EDITS = ("title", "month", "day", "nth", "weekday", "year", "recurs", "weight", "notes", "owner", "person_name", "relation")
+
+
+def _edited_date(payload: dict, changes: dict | None) -> dict:
+    """A date suggestion's payload with the person's edits on top. A fixed day replaces a
+    rule (the second Sunday of May), as it does when editing a date. add_date checks it all."""
+    if not changes:
+        return payload
+    out = {**payload, **{k: v for k, v in changes.items() if k in DATE_EDITS}}
+    if changes.get("day") is not None:
+        out["nth"] = out["weekday"] = None
+    return out
 
 
 def dismiss(session: Session, identity: Identity, s: Suggestion) -> None:
