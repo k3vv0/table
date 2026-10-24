@@ -829,45 +829,58 @@
     return form;
   }
 
+  // One labelled form for adding and editing a place, so every field says what it's for.
+  const field = (label, input, hint) => el("label", { class: "field" }, el("span", { class: "field-label", text: label }), input, hint ? el("span", { class: "hint", text: hint }) : null);
+
+  function placeForm(p, onDone) {
+    const form = el("form", { class: "editor place-form" });
+    const name = el("input", { name: "title", value: p.name || "", maxlength: 120, required: true, placeholder: "Home, San Marcos, Santa Clarita" });
+    const airports = el("input", { value: p.airports || "", placeholder: "JFK LGA" });
+    const bags = el("input", { value: p.bags_airport || "", placeholder: "LGA", maxlength: 3, class: "num" });
+    const hosts = el("input", { value: p.hosts || "", placeholder: "Kev's cousins" });
+    const ride = el("input", { value: p.ride || "", placeholder: "Uber from AUS, about 40 minutes" });
+    const cost = el("input", { type: "number", min: 0, value: p.ride_cost ?? "", class: "num", placeholder: "60" });
+    const home = el("input", { type: "checkbox", checked: Boolean(p.home) });
+    const notes = el("textarea", { rows: 2, placeholder: "Anything else worth remembering about going there" });
+    notes.value = p.notes || "";
+    form.append(
+      field("Name", name, "What you call it."),
+      field("Airports", airports, "Three-letter codes, best first, separated by spaces. Flights are searched from all of them."),
+      field("With checked bags", bags, "Optional: the airport you use instead when you check a bag."),
+      field("Who you stay with", hosts, "Optional. Leave blank if you'd need a hotel."),
+      field("Usual ride from the airport", ride, "Optional."),
+      field("Ride cost, each way ($)", cost, "Optional, a rough number for the trip estimate."),
+      el("label", { class: "chk" }, home, " This is home: trips start and end here"),
+      field("Notes", notes),
+      el("div", { class: "editor-row" }, el("button", { type: "submit", class: "btn primary", text: p.id ? "Save" : "Add place" }), el("button", { type: "button", class: "btn ghost", text: "Cancel", onclick: () => render() })),
+    );
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const body = { name: name.value, airports: airports.value, bags_airport: bags.value, hosts: hosts.value, ride: ride.value, ride_cost: cost.value ? Number(cost.value) : null, home: home.checked, notes: notes.value };
+      tripCall(p.id ? "PATCH" : "POST", p.id ? `/places/${p.id}` : "/places", body, p.id ? "Saved." : "Place added.");
+    });
+    onDone(form);
+    name.focus();
+  }
+
   function placeRow(p) {
     const li = el("li", { class: "item" });
-    const edit = () => {
-      const form = el("form", { class: "editor" });
-      const name = el("input", { name: "title", value: p.name, maxlength: 120, required: true, "aria-label": "Name" });
-      const airports = el("input", { value: p.airports, placeholder: "Airports, first choice first: JFK LGA", "aria-label": "Airports" });
-      const bags = el("input", { value: p.bags_airport, placeholder: "With checked bags, if different: LGA", maxlength: 3, "aria-label": "Bags airport" });
-      const hosts = el("input", { value: p.hosts, placeholder: "Who you stay with", "aria-label": "Hosts" });
-      const ride = el("input", { value: p.ride, placeholder: "The usual ride: Uber from AUS, about 40 minutes", "aria-label": "Ride" });
-      const cost = el("input", { type: "number", min: 0, value: p.ride_cost ?? "", class: "num", "aria-label": "Ride cost" });
-      const home = el("input", { type: "checkbox", checked: p.home });
-      const notes = el("textarea", { rows: 2, placeholder: "Notes", "aria-label": "Notes" });
-      notes.value = p.notes;
-      form.append(name, airports, bags, hosts, ride, el("label", { class: "due" }, "Ride, each way $ ", cost), el("label", { class: "chk" }, home, " Home: trips start here"), notes,
-        el("div", { class: "editor-row" }, el("button", { type: "submit", class: "btn primary", text: "Save" }), el("button", { type: "button", class: "btn ghost", text: "Cancel", onclick: () => render() })));
-      form.addEventListener("submit", (e) => {
-        e.preventDefault();
-        tripCall("PATCH", `/places/${p.id}`, { name: name.value, airports: airports.value, bags_airport: bags.value, hosts: hosts.value, ride: ride.value, ride_cost: cost.value ? Number(cost.value) : null, home: home.checked, notes: notes.value }, "Saved.");
-      });
-      li.replaceChildren(form);
-    };
     const meta = el("div", { class: "meta" });
     if (p.home) meta.append(el("span", { class: "chip weight", text: "Home" }));
-    if (p.airports) meta.append(el("span", { class: "chip", text: p.airports + (p.bags_airport ? ` · bags: ${p.bags_airport}` : "") }));
+    if (p.airports) meta.append(el("span", { class: "chip", text: `Flies from ${p.airports}` + (p.bags_airport ? ` · with bags: ${p.bags_airport}` : "") }));
     if (p.ride_cost !== null) meta.append(el("span", { class: "chip", text: `Ride about $${p.ride_cost}` }));
-    li.append(el("button", { type: "button", class: "item-body", onclick: edit }, el("span", { class: "title", text: p.name }), p.hosts || p.ride ? el("span", { class: "notes", text: [p.hosts && `Hosts: ${p.hosts}`, p.ride].filter(Boolean).join(" · ") }) : null, meta));
+    li.append(el("button", { type: "button", class: "item-body", onclick: () => placeForm(p, (form) => li.replaceChildren(form)) }, el("span", { class: "title", text: p.name }), p.hosts || p.ride ? el("span", { class: "notes", text: [p.hosts && `Stays with ${p.hosts}`, p.ride].filter(Boolean).join(" · ") }) : null, meta));
     return li;
   }
 
-  function addPlaceForm() {
-    const form = el("form", { class: "capture" });
-    const name = el("input", { name: "title", placeholder: "Add a place: Home, San Marcos, Santa Clarita…", maxlength: 120, required: true, "aria-label": "Place" });
-    const airports = el("input", { class: "short", placeholder: "Airports: AUS SAT", "aria-label": "Airports" });
-    form.append(name, el("div", { class: "capture-row" }, airports, el("button", { type: "submit", class: "btn primary", text: "Add" })));
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      tripCall("POST", "/places", { name: name.value, airports: airports.value }, "Place added.");
-    });
-    return form;
+  function addPlaceButtons(places) {
+    const wrap = el("div", { class: "meta presets" });
+    const open = (p) => placeForm(p, (form) => wrap.replaceWith(form));
+    if (!places.some((p) => p.home)) {
+      wrap.append(el("button", { type: "button", class: "btn small primary", text: "+ Set up Home", onclick: () => open({ name: "Home", airports: "JFK LGA", bags_airport: "LGA", home: true }) }));
+    }
+    wrap.append(el("button", { type: "button", class: "btn small", text: "+ Add a place", onclick: () => open({}) }));
+    return wrap;
   }
 
   async function renderTrips() {
@@ -887,7 +900,10 @@
       ul.append(el("li", { class: "item" }, el("a", { class: "item-body", href: `#trip-${t.id}` }, el("span", { class: "title", text: t.title }), t.places ? el("span", { class: "notes", text: t.places }) : null, meta)));
     }
     parts.push(el("div", { class: "section" }, el("h2", { text: "Trips" }), trips.length ? ul : el("p", { class: "muted", text: "No trips yet. Add one above." })));
-    parts.push(el("div", { class: "section" }, el("h2", { text: "Places" }), addPlaceForm(), places.length ? el("ul", { class: "items" }, ...places.map(placeRow)) : el("p", { class: "muted", text: "Add Home first (JFK LGA, bags: LGA), then the places you go back to." })));
+    parts.push(el("div", { class: "section" }, el("h2", { text: "Places" }),
+      el("p", { class: "muted", text: "Places you go back to, so a new trip there starts filled in: which airports to fly from, who you stay with, and the usual ride. Tap one to change it." }),
+      places.length ? el("ul", { class: "items" }, ...places.map(placeRow)) : "",
+      addPlaceButtons(places)));
     list.replaceChildren(...parts);
   }
 
