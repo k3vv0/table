@@ -111,6 +111,7 @@
     const options = [
       ["Tomorrow", addDays(1)],
       ["Saturday", nextWeekday(6)],
+      ["Sunday", nextWeekday(0)],
       ["Next Monday", nextWeekday(1)],
       ["In two weeks", addDays(14)],
     ];
@@ -190,6 +191,9 @@
     if (context === "session-today") out.push(btn("Keep", () => toast("Kept for today.")));
     if (!onToday) out.push(btn("Today", () => triage(item, "today")));
     if (onToday) out.push(btn("Tomorrow", () => triage(item, "later", addDays(1))));
+    // Sunday is when the house gets done. On a Saturday it's already the Tomorrow button.
+    const sunday = nextWeekday(0);
+    if (!(onToday && sunday === addDays(1))) out.push(btn("Sunday", () => triage(item, "later", sunday)));
     const later = btn("Later", (e) => {
       const wrap = e.currentTarget.parentElement;
       const open = wrap.querySelector(".menu");
