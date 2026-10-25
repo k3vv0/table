@@ -182,11 +182,20 @@
     title.focus();
   }
 
+  // The web link an item is about: what a Shortcut shared, or the first https link in its
+  // title or notes. Only https, like linkified().
+  function itemLink(item) {
+    for (const s of item.sources) if (s.kind === "shortcut" && s.ref.startsWith("https://")) return s.ref;
+    return `${item.title} ${item.notes}`.match(/https:\/\/[^\s<>"')]+/)?.[0] || null;
+  }
+
   // Which buttons a row offers depends on where the item sits right now.
   function actionsFor(item, context) {
     const out = [];
     const btn = (text, fn, cls = "btn small") => el("button", { type: "button", class: cls, text, onclick: fn });
-    if (item.status === "done") return [btn("Reopen", () => triage(item, "reopen"))];
+    const link = itemLink(item);
+    if (link) out.push(el("a", { class: "btn small", href: link, target: "_blank", rel: "noopener noreferrer", text: "Open" }));
+    if (item.status === "done") return [...out, btn("Reopen", () => triage(item, "reopen"))];
     const onToday = context === "today" || context === "session-today";
     if (context === "session-today") out.push(btn("Keep", () => toast("Kept for today.")));
     if (!onToday) out.push(btn("Today", () => triage(item, "today")));
