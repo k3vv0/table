@@ -705,7 +705,7 @@
 
   const httpsOnly = (url) => (url && url.startsWith("https://") ? url : null);
 
-  async function markRead(id, word = "Marked read.") {
+  async function markRead(id, word = "Done.") {
     try {
       await api("POST", `/items/${id}/triage`, { action: "done" });
       toast(word);
@@ -724,7 +724,7 @@
     meta.append(el("span", { class: "chip", text: `Saved ${new Date(`${e.created_at}Z`).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` }));
     const actions = [];
     if (href) actions.push(el("a", { class: "btn small primary", href, target: "_blank", rel: "noopener noreferrer", text: e.from ? "Open in Gmail" : "Open" }));
-    actions.push(btn("Read", () => markRead(e.id)), btn("Remove", () => markRead(e.id, "Removed from the vault."), "btn small ghost"));
+    actions.push(btn("Done", () => markRead(e.id), "btn small done"), btn("Remove", () => markRead(e.id, "Removed from the vault."), "btn small ghost"));
     return el(
       "li",
       { class: pick ? "item suggestion" : "item" },
